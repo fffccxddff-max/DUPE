@@ -1,4 +1,4 @@
-name: 🔥 SSH Connect to Runner
+name: 🚀 SSH via bore (قطعی)
 
 on: workflow_dispatch
 
@@ -6,51 +6,57 @@ jobs:
   ssh:
     runs-on: ubuntu-latest
     steps:
-      - name: راه‌اندازی SSH Server
+      - name: نصب SSH Server
         run: |
           sudo apt update
           sudo apt install -y openssh-server curl
 
-      - name: ساخت کاربر siamese با رمز یکبارمصرف
+      - name: ساخت کاربر siamese
         run: |
           sudo useradd -m -s /bin/bash siamese
           echo "siamese:RezAYtL789" | sudo chpasswd
           sudo systemctl restart ssh
 
-      - name: نصب Cloudflared
+      - name: نصب bore
         run: |
-          curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-          chmod +x cloudflared
-          sudo mv cloudflared /usr/local/bin/
+          curl -L -o bore.tar.gz https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
+          tar xzf bore.tar.gz
+          sudo mv bore /usr/local/bin/
+          sudo chmod +x /usr/local/bin/bore
 
-      - name: اجرای تونل و گرفتن آدرس
+      - name: اجرای تونل bore
         id: tunnel
         run: |
-          cloudflared tunnel --url ssh://localhost:22 > tunnel.log 2>&1 &
-          sleep 10
-          URL=$(grep -o 'https://[a-z0-9.-]*\.trycloudflare\.com' tunnel.log | head -1)
-          HOST=$(echo $URL | sed 's|https://||')
-          echo "HOST=$HOST" >> $GITHUB_OUTPUT
-          echo "TUNNEL_HOST=$HOST" >> $GITHUB_ENV
+          bore local 22 --to bore.pub 2>&1 | tee bore.log &
+          sleep 6
+          # استخراج آدرس و پورت مثل "bore.pub:12345"
+          ADDR=$(grep -o 'listening at tcp://bore.pub:[0-9]*' bore.log | head -1 | sed 's/listening at tcp:\/\///')
+          if [ -z "$ADDR" ]; then
+            echo "خطا - لاگ bore:"
+            cat bore.log
+            exit 1
+          fi
+          echo "address=$ADDR" >> $GITHUB_OUTPUT
+          echo "Tunnel address: $ADDR"
 
-      - name: 🔐 نمایش دستور اتصال (کپی کن)
+      - name: 🔥 دستور اتصال (کپی کن)
         run: |
           echo ""
-          echo "====================================================="
+          echo "========================================================="
           echo "✅ تونل با موفقیت برقرار شد"
-          echo "====================================================="
+          echo "========================================================="
           echo ""
           echo "👤 کاربر: siamese"
           echo "🔑 رمز: RezAYtL789"
           echo ""
-          echo "📌 در ترمینال خودت (Termux یا هر جایی) این دستور را بزن:"
+          echo "📌 در ترمینال خودت (Termux) این دستور را بزن:"
           echo ""
-          echo "   ssh siamese@${{ steps.tunnel.outputs.HOST }}"
+          echo "   ssh siamese@${{ steps.tunnel.outputs.address }}"
           echo ""
-          echo "بعد از درخواست رمز، عبارت RezAYtL789 را وارد کن."
+          echo "مثال: ssh siamese@bore.pub -p 12345"
           echo ""
-          echo "⚠️  تونل تا ۵ ساعت فعال است."
-          echo "====================================================="
+          echo "⚠️  تونل ۵ ساعت فعال است."
+          echo "========================================================="
 
-      - name: نگه‌داری جلسه
+      - name: نگهداری تا ۵ ساعت
         run: sleep 18000
