@@ -1,4 +1,4 @@
-name: 🚀 SSH via bore (قطعی)
+name: 🚀 SSH via bore (اصلاح شده - قطعی)
 
 on: workflow_dispatch
 
@@ -29,10 +29,10 @@ jobs:
         run: |
           bore local 22 --to bore.pub 2>&1 | tee bore.log &
           sleep 6
-          # استخراج آدرس و پورت مثل "bore.pub:12345"
-          ADDR=$(grep -o 'listening at tcp://bore.pub:[0-9]*' bore.log | head -1 | sed 's/listening at tcp:\/\///')
+          # اصلاح الگو: بدون tcp://
+          ADDR=$(grep -o 'bore.pub:[0-9]*' bore.log | head -1)
           if [ -z "$ADDR" ]; then
-            echo "خطا - لاگ bore:"
+            echo "خطا - نتوانستیم آدرس را پیدا کنیم. محتوای لاگ:"
             cat bore.log
             exit 1
           fi
@@ -53,7 +53,7 @@ jobs:
           echo ""
           echo "   ssh siamese@${{ steps.tunnel.outputs.address }}"
           echo ""
-          echo "مثال: ssh siamese@bore.pub -p 12345"
+          echo "مثال: ssh siamese@bore.pub -p 57995"
           echo ""
           echo "⚠️  تونل ۵ ساعت فعال است."
           echo "========================================================="
