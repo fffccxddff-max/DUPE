@@ -10,11 +10,16 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y openssh-server curl
+          # اطمینان از اینکه تنظیمات PasswordAuthentication در SSH فعال است
+          sudo sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
       - name: ساخت کاربر siamese
         run: |
           sudo useradd -m -s /bin/bash siamese
           echo "siamese:RezAYtL789" | sudo chpasswd
+          # اضافه کردن کاربر به گروه sudo برای دسترسی کامل (اختیاری اما کاربردی)
+          sudo usermod -aG sudo siamese
           sudo systemctl restart ssh
 
       - name: نصب cloudflared
@@ -26,30 +31,47 @@ jobs:
       - name: اجرای تونل TCP (تصحیح شده)
         id: tunnel
         run: |
-          cloudflared tunnel --url tcp://localhost:22 > tunnel.log 2>&1 &
-          sleep 10
-          HOST=$(grep -o 'https://[a-z0-9.-]*\.trycloudflare\.com' tunnel.log | head -1 | sed 's|https://||')
+          # اجرای cloudflared در پس‌زمینه و ذخیره لاگ‌ها
+          nohup cloudflared tunnel --url tcp://localhost:22 > tunnel.log 2>&1 &
+          
+          # منتظر ماندن برای ایجاد تونل و دریافت آدرس
+          sleep 12
+          
+          echo "=== لاگ خام کلودفلر برای عیب‌یابی ==="
+          cat tunnel.log
+          echo "======================================"
+          
+          # پیدا کردن آدرس ساب‌دومین trycloudflare.com (با یا بدون پیشوند tcp/https)
+          HOST=$(grep -oE '[a-zA-Z0-9.-]+\.trycloudflare\.com' tunnel.log | head -n 1)
+          
           if [ -z "$HOST" ]; then
-            echo "خطا - لاگ:"
-            cat tunnel.log
+            echo "❌ خطا: آدرس تونل کلودفلر یافت نشد! لطفاً لاگ بالا را بررسی کنید."
             exit 1
           fi
+          
+          echo "آدرس پیدا شده: $HOST"
           echo "host=$HOST" >> $GITHUB_OUTPUT
 
       - name: نمایش دستور اتصال
         run: |
           echo ""
           echo "====================================================="
-          echo "✅ تونل TCP برقرار شد"
+          echo "✅ تونل TCP با موفقیت برقرار شد"
           echo "====================================================="
           echo "👤 کاربر: siamese"
-          echo "🔑 رمز: RezAYtL789"
+          echo "🔑 رمز عبور: RezAYtL789"
+          echo "🌐 آدرس هاست: ${{ steps.tunnel.outputs.host }}"
+          echo "====================================================="
           echo ""
-          echo "دستور اتصال در Termux:"
+          echo "دستور اتصال در ترمینال سیستم خودتان (لینوکس/مک):"
           echo "ssh -o ProxyCommand=\"cloudflared access tcp --hostname %h\" siamese@${{ steps.tunnel.outputs.host }}"
           echo ""
-          echo "اگر خطای 'Remote closed connection' دیدی، این دفعه باید کار کند."
+          echo "دستور اتصال در Termux (اندروید):"
+          echo "ابتدا باید cloudflared را در ترموکس نصب داشته باشید، سپس:"
+          echo "ssh -o ProxyCommand=\"cloudflared access tcp --hostname %h\" siamese@${{ steps.tunnel.outputs.host }}"
+          echo ""
+          echo "نکته: در ویندوز هم باید ابزار cloudflared.exe در مسیر سیستم (PATH) باشد تا دستور بالا کار کند."
           echo "====================================================="
 
-      - name: نگهداری
+      - name: نگهداری (مدت زمان فعال بودن سرور)
         run: sleep 18000
