@@ -10,15 +10,52 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y openssh-server curl
-          # اطمینان از اینکه تنظیمات PasswordAuthentication در SSH فعال است
-          sudo sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+      - name: تنظیمات سخت‌گیرانه برای فعال‌سازی SSH با رمز عبور
+        run: |
+          # حذف فایل‌های کانفیگ پیش‌فرض گیت‌هاب که مانع اتصال می‌شوند
+          sudo rm -f /etc/ssh/sshd_config.d/*
+          
+          # بازنویسی تنظیمات اصلی SSH برای قبول رمز عبور و دسترسی به یوزرها
+          sudo bash -c 'cat <<EOF > /etc/ssh/sshd_config
+          Port 22
+          Protocol 2
+          HostKey /etc/ssh/ssh_host_rsa_key
+          HostKey /etc/ssh/ssh_host_ecdsa_key
+          HostKey /etc/ssh/ssh_host_ed25519_key
+          UsePrivilegeSeparation yes
+          KeyRegenerationInterval 3600
+          ServerKeyBits 1024
+          SyslogFacility AUTH
+          LogLevel INFO
+          LoginGraceTime 120
+          PermitRootLogin yes
+          StrictModes no
+          PubkeyAuthentication yes
+          IgnoreRhosts yes
+          HostbasedAuthentication no
+          PermitEmptyPasswords no
+          ChallengeResponseAuthentication no
+          PasswordAuthentication yes
+          X11Forwarding yes
+          X11DisplayOffset 10
+          PrintMotd no
+          PrintLastLog yes
+          TCPKeepAlive yes
+          AcceptEnv LANG LC_*
+          Subsystem sftp /usr/lib/openssh/sftp-server
+          UsePAM yes
+          EOF'
+          
+          # راه‌اندازی مجدد و اعمال تنظیمات
+          sudo systemctl daemon-reload
+          sudo systemctl restart ssh
 
       - name: ساخت کاربر siamese
         run: |
           sudo useradd -m -s /bin/bash siamese
           echo "siamese:RezAYtL789" | sudo chpasswd
-          # اضافه کردن کاربر به گروه sudo برای دسترسی کامل (اختیاری اما کاربردی)
+          # اضافه کردن کاربر به گروه sudo جهت دسترسی مدیریتی کامل
           sudo usermod -aG sudo siamese
           sudo systemctl restart ssh
 
@@ -31,17 +68,17 @@ jobs:
       - name: اجرای تونل TCP (تصحیح شده)
         id: tunnel
         run: |
-          # اجرای cloudflared در پس‌زمینه و ذخیره لاگ‌ها
+          # اجرای کلودفلر در پس‌زمینه
           nohup cloudflared tunnel --url tcp://localhost:22 > tunnel.log 2>&1 &
           
-          # منتظر ماندن برای ایجاد تونل و دریافت آدرس
+          # منتظر ماندن برای برقراری ارتباط تونل
           sleep 12
           
           echo "=== لاگ خام کلودفلر برای عیب‌یابی ==="
           cat tunnel.log
           echo "======================================"
           
-          # پیدا کردن آدرس ساب‌دومین trycloudflare.com (با یا بدون پیشوند tcp/https)
+          # استخراج تمیز آدرس بدون پیشوند
           HOST=$(grep -oE '[a-zA-Z0-9.-]+\.trycloudflare\.com' tunnel.log | head -n 1)
           
           if [ -z "$HOST" ]; then
@@ -63,14 +100,11 @@ jobs:
           echo "🌐 آدرس هاست: ${{ steps.tunnel.outputs.host }}"
           echo "====================================================="
           echo ""
-          echo "دستور اتصال در ترمینال سیستم خودتان (لینوکس/مک):"
+          echo "دستور اتصال در ترمینال سیستم خودتان یا Termux:"
           echo "ssh -o ProxyCommand=\"cloudflared access tcp --hostname %h\" siamese@${{ steps.tunnel.outputs.host }}"
           echo ""
-          echo "دستور اتصال در Termux (اندروید):"
-          echo "ابتدا باید cloudflared را در ترموکس نصب داشته باشید، سپس:"
-          echo "ssh -o ProxyCommand=\"cloudflared access tcp --hostname %h\" siamese@${{ steps.tunnel.outputs.host }}"
-          echo ""
-          echo "نکته: در ویندوز هم باید ابزار cloudflared.exe در مسیر سیستم (PATH) باشد تا دستور بالا کار کند."
+          echo "اگر کلودفلرد روی ترموکس نصب نیست، اول دستور زیر را بزنید:"
+          echo "pkg install cloudflared"
           echo "====================================================="
 
       - name: نگهداری (مدت زمان فعال بودن سرور)
