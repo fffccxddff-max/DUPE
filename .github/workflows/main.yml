@@ -1,99 +1,53 @@
-name: Siamese Runner with SSH
+name: Siamese Runner with SSH (Cloudflare Tunnel)
 
 on: workflow_dispatch
 
 jobs:
-  ssh-gateway:
+  ssh-tunnel:
     runs-on: ubuntu-latest
-    outputs:
-      tunnel_addr: ${{ steps.tunnel.outputs.addr }}
     steps:
-      - name: نصب SSH server و ابزارها
+      - name: نصب SSH server
         run: |
           sudo apt update
-          sudo apt install -y openssh-server curl wget
+          sudo apt install -y openssh-server curl
 
-      - name: تنظیم SSH server (رمز عبور یکبارمصرف)
+      - name: تنظیم SSH user
         run: |
-          # ایجاد کاربر جدید با رمز موقت
           sudo useradd -m -s /bin/bash siamese
           echo "siamese:tempPass123" | sudo chpasswd
-          # اجازه رمز عبور و root login (فقط برای سادگی)
-          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo systemctl restart ssh
 
-      - name: نصب bore
+      - name: نصب cloudflared
         run: |
-          curl -L -o bore https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
-          tar xzf bore
-          sudo mv bore /usr/local/bin/
-          sudo chmod +x /usr/local/bin/bore
+          curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
 
-      - name: راه‌اندازی تونل bore در پس‌زمینه
-        id: tunnel
+      - name: ایجاد تونل SSH و نمایش آدرس
         run: |
-          # اجرا در screen تا وقتی workflow زنده است کار کند
-          sudo apt install -y screen
-          screen -dmS bore bore local 22 --to bore.pub
-          sleep 5
-          # دریافت آدرس تونل از لاگ bore - کمی هک
-          LOGS=$(screen -S bore -X hardcopy /tmp/bore.log 2>/dev/null || true)
-          cat /tmp/bore.log
-          # استخراج آدرس - مثال: "listening at tcp://bore.pub:12345"
-          ADDR=$(grep -o 'tcp://[^ ]*' /tmp/bore.log | head -1 | sed 's/tcp:\/\///')
-          if [ -z "$ADDR" ]; then
-            ADDR="bore.pub:未知"
-          fi
-          echo "addr=$ADDR" >> $GITHUB_OUTPUT
-          echo "تونل در آدرس: $ADDR"
-
-      - name: نمایش اطلاعات اتصال
-        run: |
-          echo "=========================================="
-          echo "🔐 SSH Tunnel آماده است!"
-          echo "آدرس: ${{ steps.tunnel.outputs.addr }}"
-          echo "کاربر: siamese"
+          # اجرا در پس‌زمینه و گرفتن آدرس
+          nohup cloudflared tunnel --url ssh://localhost:22 --logfile cloudflared.log &
+          sleep 8
+          # استخراج آدرس از لاگ
+          URL=$(grep -o 'https://[-a-zA-Z0-9.]*\.trycloudflare\.com' cloudflared.log | head -1)
+          echo "✅ تونل فعال شد!"
+          echo "آدرس اتصال SSH: $URL"
+          echo "با دستور زیر وصل شو:"
+          echo "ssh -o ProxyCommand='cloudflared access ssh --hostname %h' siamese@${URL#https://}"
+          echo "یا ساده‌تر:"
+          echo "ssh siamese@${URL#https://}"
           echo "رمز: tempPass123"
-          echo "نمونه دستور اتصال:"
-          echo "ssh siamese@${{ steps.tunnel.outputs.addr }} -o ServerAliveInterval=60"
-          echo "⚠️  توجه: رمز موقتی است و فقط در طول این اجرا معتبر است."
-          echo "پس از اتمام کار، workflow را لغو کنید یا منتظر بمانید تا خودکار قطع شود."
-          echo "=========================================="
+          echo "⚠️  تونل تا ۵ ساعت فعال می‌ماند."
 
-      - name: منتظر ماندن برای اتصال کاربر (حداکثر ۵ ساعت)
+      - name: نگه‌داری workflow تا قطع اتصال
         run: |
-          # بررسی فعال بودن جلسه SSH هر ۳۰ ثانیه
-          END=$((SECONDS+18000))  # 5 ساعت
-          CONNECTED=0
-          while [ $SECONDS -lt $END ]; do
+          echo "منتظر اتصال کاربر هستم..."
+          while true; do
             if who | grep -q siamese; then
-              if [ $CONNECTED -eq 0 ]; then
-                echo "✅ کاربر متصل شد! جلسه SSH فعال است."
-                CONNECTED=1
-              fi
+              echo "کاربر متصل است."
+              sleep 60
             else
-              if [ $CONNECTED -eq 1 ]; then
-                echo "❌ کاربر قطع شد. پایان جلسه."
-                break
-              fi
+              echo "هیچ کاربری متصل نیست. در حال انتظار..."
+              sleep 30
             fi
-            sleep 30
           done
-          echo "زمان انتظار به پایان رسید یا جلسه خاتمه یافت."
-
-      - name: پاکسازی و ذخیره لاگ
-        if: always()
-        run: |
-          # گرفتن خروجی دستورات انجام شده توسط کاربر
-          # (اختیاری: می‌توان لاگ history کاربر را ذخیره کرد)
-          sudo journalctl -u ssh --since "10 minutes ago" > ssh_log.txt || true
-          echo "لاگ SSH ذخیره شد."
-
-      - name: آپلود لاگ به عنوان آرتیفکت
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ssh-logs
-          path: ssh_log.txt
-          retention-days: 1
