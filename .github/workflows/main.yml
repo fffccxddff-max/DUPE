@@ -9,55 +9,52 @@ jobs:
       - name: نصب SSH Server
         run: |
           sudo apt update
-          sudo apt install -y openssh-server curl
+          sudo apt install -y openssh-server curl net-tools
 
-      - name: تنظیمات سخت‌گیرانه برای فعال‌سازی SSH با رمز عبور
+      - name: ساخت کاربر siamese و تنظیمات دسترسی
         run: |
-          # حذف فایل‌های کانفیگ پیش‌فرض گیت‌هاب که مانع اتصال می‌شوند
-          sudo rm -f /etc/ssh/sshd_config.d/*
-          
-          # بازنویسی تنظیمات اصلی SSH برای قبول رمز عبور و دسترسی به یوزرها
-          sudo bash -c 'cat <<EOF > /etc/ssh/sshd_config
-          Port 22
-          Protocol 2
-          HostKey /etc/ssh/ssh_host_rsa_key
-          HostKey /etc/ssh/ssh_host_ecdsa_key
-          HostKey /etc/ssh/ssh_host_ed25519_key
-          UsePrivilegeSeparation yes
-          KeyRegenerationInterval 3600
-          ServerKeyBits 1024
-          SyslogFacility AUTH
-          LogLevel INFO
-          LoginGraceTime 120
-          PermitRootLogin yes
-          StrictModes no
-          PubkeyAuthentication yes
-          IgnoreRhosts yes
-          HostbasedAuthentication no
-          PermitEmptyPasswords no
-          ChallengeResponseAuthentication no
-          PasswordAuthentication yes
-          X11Forwarding yes
-          X11DisplayOffset 10
-          PrintMotd no
-          PrintLastLog yes
-          TCPKeepAlive yes
-          AcceptEnv LANG LC_*
-          Subsystem sftp /usr/lib/openssh/sftp-server
-          UsePAM yes
-          EOF'
-          
-          # راه‌اندازی مجدد و اعمال تنظیمات
-          sudo systemctl daemon-reload
-          sudo systemctl restart ssh
-
-      - name: ساخت کاربر siamese
-        run: |
+          # ساخت یوزر siamese با دایرکتوری خانگی و پوسته بش
           sudo useradd -m -s /bin/bash siamese
           echo "siamese:RezAYtL789" | sudo chpasswd
-          # اضافه کردن کاربر به گروه sudo جهت دسترسی مدیریتی کامل
+          # دادن دسترسی سودو به کاربر
           sudo usermod -aG sudo siamese
-          sudo systemctl restart ssh
+
+      - name: پیکربندی و اجرای دستی و مطمئن سرویس SSH
+        run: |
+          # متوقف کردن سرویس‌های پیش‌فرض سیستم‌د برای آزاد شدن کامل پورت ۲۲
+          sudo systemctl stop ssh || true
+          sudo systemctl stop ssh.socket || true
+          
+          # ساخت دایرکتوری مورد نیاز SSH برای اجرا
+          sudo mkdir -p /var/run/sshd
+          
+          # تولید کلیدهای هاست در صورت عدم وجود
+          sudo ssh-keygen -A
+          
+          # نوشتن کانفیگ ساده، مدرن و ۱۰۰٪ سازگار با اوبونتوهای جدید
+          sudo bash -c 'cat <<EOF > /etc/ssh/sshd_config
+          Port 22
+          ListenAddress 0.0.0.0
+          Protocol 2
+          PermitRootLogin yes
+          PasswordAuthentication yes
+          PubkeyAuthentication yes
+          ChallengeResponseAuthentication no
+          UsePAM yes
+          X11Forwarding yes
+          Subsystem sftp /usr/lib/openssh/sftp-server
+          EOF'
+          
+          # تست صحت کانفیگ جهت اطمینان از عدم وجود ارور ساختاری
+          sudo /usr/sbin/sshd -t
+          
+          # اجرای مستقیم سرویس SSH در پس‌زمینه (دور زدن تمام محدودیت‌های سیستم‌د گیت‌هاب)
+          sudo /usr/sbin/sshd -D &
+          
+          # چند ثانیه صبر و بررسی باز بودن پورت ۲۲
+          sleep 3
+          echo "=== وضعیت پورت‌های سیستم ==="
+          sudo netstat -tuln | grep :22 || echo "پورت ۲۲ فعال نشد!"
 
       - name: نصب cloudflared
         run: |
@@ -68,21 +65,21 @@ jobs:
       - name: اجرای تونل TCP (تصحیح شده)
         id: tunnel
         run: |
-          # اجرای کلودفلر در پس‌زمینه
+          # اجرای کلودفلرد در پس‌زمینه
           nohup cloudflared tunnel --url tcp://localhost:22 > tunnel.log 2>&1 &
           
-          # منتظر ماندن برای برقراری ارتباط تونل
+          # منتظر ماندن برای ایجاد تونل
           sleep 12
           
-          echo "=== لاگ خام کلودفلر برای عیب‌یابی ==="
+          echo "=== لاگ خام کلودفلر ==="
           cat tunnel.log
           echo "======================================"
           
-          # استخراج تمیز آدرس بدون پیشوند
+          # استخراج تمیز ساب‌دومین بدون هیچ پیشوندی
           HOST=$(grep -oE '[a-zA-Z0-9.-]+\.trycloudflare\.com' tunnel.log | head -n 1)
           
           if [ -z "$HOST" ]; then
-            echo "❌ خطا: آدرس تونل کلودفلر یافت نشد! لطفاً لاگ بالا را بررسی کنید."
+            echo "❌ خطا: آدرس تونل یافت نشد!"
             exit 1
           fi
           
@@ -93,18 +90,16 @@ jobs:
         run: |
           echo ""
           echo "====================================================="
-          echo "✅ تونل TCP با موفقیت برقرار شد"
+          echo "✅ تونل TCP با موفقیت و پایداری کامل برقرار شد"
           echo "====================================================="
           echo "👤 کاربر: siamese"
           echo "🔑 رمز عبور: RezAYtL789"
           echo "🌐 آدرس هاست: ${{ steps.tunnel.outputs.host }}"
           echo "====================================================="
           echo ""
-          echo "دستور اتصال در ترمینال سیستم خودتان یا Termux:"
+          echo "دستور اتصال مستقیم در Termux یا ترمینال سیستم شما:"
           echo "ssh -o ProxyCommand=\"cloudflared access tcp --hostname %h\" siamese@${{ steps.tunnel.outputs.host }}"
           echo ""
-          echo "اگر کلودفلرد روی ترموکس نصب نیست، اول دستور زیر را بزنید:"
-          echo "pkg install cloudflared"
           echo "====================================================="
 
       - name: نگهداری (مدت زمان فعال بودن سرور)
