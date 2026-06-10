@@ -1,4 +1,4 @@
-name: 🚀 SSH via bore (اصلاح شده - قطعی)
+name: 🔥 SSH via Cloudflared (قطعی)
 
 on: workflow_dispatch
 
@@ -17,46 +17,43 @@ jobs:
           echo "siamese:RezAYtL789" | sudo chpasswd
           sudo systemctl restart ssh
 
-      - name: نصب bore
+      - name: نصب cloudflared
         run: |
-          curl -L -o bore.tar.gz https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
-          tar xzf bore.tar.gz
-          sudo mv bore /usr/local/bin/
-          sudo chmod +x /usr/local/bin/bore
+          curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
 
-      - name: اجرای تونل bore
+      - name: اجرای تونل TCP
         id: tunnel
         run: |
-          bore local 22 --to bore.pub 2>&1 | tee bore.log &
-          sleep 6
-          # اصلاح الگو: بدون tcp://
-          ADDR=$(grep -o 'bore.pub:[0-9]*' bore.log | head -1)
-          if [ -z "$ADDR" ]; then
-            echo "خطا - نتوانستیم آدرس را پیدا کنیم. محتوای لاگ:"
-            cat bore.log
+          cloudflared tunnel --url ssh://localhost:22 > tunnel.log 2>&1 &
+          sleep 10
+          HOST=$(grep -o 'https://[a-z0-9.-]*\.trycloudflare\.com' tunnel.log | head -1 | sed 's|https://||')
+          if [ -z "$HOST" ]; then
+            echo "خطا:"
+            cat tunnel.log
             exit 1
           fi
-          echo "address=$ADDR" >> $GITHUB_OUTPUT
-          echo "Tunnel address: $ADDR"
+          echo "host=$HOST" >> $GITHUB_OUTPUT
 
-      - name: 🔥 دستور اتصال (کپی کن)
+      - name: 🔐 نمایش دستور اتصال
         run: |
           echo ""
-          echo "========================================================="
-          echo "✅ تونل با موفقیت برقرار شد"
-          echo "========================================================="
+          echo "====================================================="
+          echo "✅ تونل Cloudflared با موفقیت برقرار شد"
+          echo "====================================================="
           echo ""
           echo "👤 کاربر: siamese"
           echo "🔑 رمز: RezAYtL789"
           echo ""
-          echo "📌 در ترمینال خودت (Termux) این دستور را بزن:"
+          echo "📌 در Termux (یا هر ترمینال لینوکسی) این دستور را بزن:"
           echo ""
-          echo "   ssh siamese@${{ steps.tunnel.outputs.address }}"
+          echo "ssh -o ProxyCommand=\"cloudflared access tcp --hostname %h\" siamese@${{ steps.tunnel.outputs.host }}"
           echo ""
-          echo "مثال: ssh siamese@bore.pub -p 57995"
-          echo ""
-          echo "⚠️  تونل ۵ ساعت فعال است."
-          echo "========================================================="
+          echo "⚠️  توجه:"
+          echo "- اگر بار اول خواست host key را تایید کنی، yes بزن"
+          echo "- تونل تا ۵ ساعت فعال است"
+          echo "====================================================="
 
-      - name: نگهداری تا ۵ ساعت
+      - name: نگهداری جلسه
         run: sleep 18000
