@@ -1,4 +1,4 @@
-name: 🔥 SSH via Cloudflared (قطعی)
+name: 🔥 SSH via Cloudflared TCP (نهایی)
 
 on: workflow_dispatch
 
@@ -23,37 +23,33 @@ jobs:
           chmod +x cloudflared
           sudo mv cloudflared /usr/local/bin/
 
-      - name: اجرای تونل TCP
+      - name: اجرای تونل TCP (تصحیح شده)
         id: tunnel
         run: |
-          cloudflared tunnel --url ssh://localhost:22 > tunnel.log 2>&1 &
+          cloudflared tunnel --url tcp://localhost:22 > tunnel.log 2>&1 &
           sleep 10
           HOST=$(grep -o 'https://[a-z0-9.-]*\.trycloudflare\.com' tunnel.log | head -1 | sed 's|https://||')
           if [ -z "$HOST" ]; then
-            echo "خطا:"
+            echo "خطا - لاگ:"
             cat tunnel.log
             exit 1
           fi
           echo "host=$HOST" >> $GITHUB_OUTPUT
 
-      - name: 🔐 نمایش دستور اتصال
+      - name: نمایش دستور اتصال
         run: |
           echo ""
           echo "====================================================="
-          echo "✅ تونل Cloudflared با موفقیت برقرار شد"
+          echo "✅ تونل TCP برقرار شد"
           echo "====================================================="
-          echo ""
           echo "👤 کاربر: siamese"
           echo "🔑 رمز: RezAYtL789"
           echo ""
-          echo "📌 در Termux (یا هر ترمینال لینوکسی) این دستور را بزن:"
-          echo ""
+          echo "دستور اتصال در Termux:"
           echo "ssh -o ProxyCommand=\"cloudflared access tcp --hostname %h\" siamese@${{ steps.tunnel.outputs.host }}"
           echo ""
-          echo "⚠️  توجه:"
-          echo "- اگر بار اول خواست host key را تایید کنی، yes بزن"
-          echo "- تونل تا ۵ ساعت فعال است"
+          echo "اگر خطای 'Remote closed connection' دیدی، این دفعه باید کار کند."
           echo "====================================================="
 
-      - name: نگهداری جلسه
+      - name: نگهداری
         run: sleep 18000
