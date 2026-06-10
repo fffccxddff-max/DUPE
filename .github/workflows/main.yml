@@ -1,50 +1,56 @@
-name: SSH Tunnel to Runner (Cloudflare)
+name: 🔥 SSH Connect to Runner
 
 on: workflow_dispatch
 
 jobs:
-  tunnel:
+  ssh:
     runs-on: ubuntu-latest
     steps:
-      - name: نصب SSH Server
+      - name: راه‌اندازی SSH Server
         run: |
           sudo apt update
           sudo apt install -y openssh-server curl
 
-      - name: ساخت کاربر siamese
+      - name: ساخت کاربر siamese با رمز یکبارمصرف
         run: |
           sudo useradd -m -s /bin/bash siamese
-          echo "siamese:TempPass2025" | sudo chpasswd
+          echo "siamese:RezAYtL789" | sudo chpasswd
           sudo systemctl restart ssh
 
-      - name: نصب cloudflared
+      - name: نصب Cloudflared
         run: |
-          curl -L --output cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared
           sudo mv cloudflared /usr/local/bin/
 
-      - name: اجرای تونل و نمایش آدرس
+      - name: اجرای تونل و گرفتن آدرس
+        id: tunnel
         run: |
           cloudflared tunnel --url ssh://localhost:22 > tunnel.log 2>&1 &
-          sleep 8
-          # استخراج آدرس تصادفی trycloudflare.com
-          URL=$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' tunnel.log | head -1)
-          if [ -z "$URL" ]; then
-            echo "خطا در گرفتن آدرس، لاگ:"
-            cat tunnel.log
-            exit 1
-          fi
+          sleep 10
+          URL=$(grep -o 'https://[a-z0-9.-]*\.trycloudflare\.com' tunnel.log | head -1)
           HOST=$(echo $URL | sed 's|https://||')
-          echo "✅ تونل فعال شد!"
-          echo "----------------------------------------"
-          echo "آدرس برای اتصال: $HOST"
-          echo "کاربر: siamese"
-          echo "رمز: TempPass2025"
-          echo "دستور اتصال از Termux:"
-          echo "ssh siamese@$HOST"
-          echo "----------------------------------------"
+          echo "HOST=$HOST" >> $GITHUB_OUTPUT
+          echo "TUNNEL_HOST=$HOST" >> $GITHUB_ENV
 
-      - name: نگهداری tunnel (حداکثر 5 ساعت)
+      - name: 🔐 نمایش دستور اتصال (کپی کن)
         run: |
-          echo "منتظر اتصال شما هستم. تا 5 ساعت فعال می‌ماند..."
-          sleep 18000   # 5 ساعت
+          echo ""
+          echo "====================================================="
+          echo "✅ تونل با موفقیت برقرار شد"
+          echo "====================================================="
+          echo ""
+          echo "👤 کاربر: siamese"
+          echo "🔑 رمز: RezAYtL789"
+          echo ""
+          echo "📌 در ترمینال خودت (Termux یا هر جایی) این دستور را بزن:"
+          echo ""
+          echo "   ssh siamese@${{ steps.tunnel.outputs.HOST }}"
+          echo ""
+          echo "بعد از درخواست رمز، عبارت RezAYtL789 را وارد کن."
+          echo ""
+          echo "⚠️  تونل تا ۵ ساعت فعال است."
+          echo "====================================================="
+
+      - name: نگه‌داری جلسه
+        run: sleep 18000
