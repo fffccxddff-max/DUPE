@@ -1,0 +1,74 @@
+name: Siamese Runner - اولین ترکیب جهان
+
+on: workflow_dispatch
+
+jobs:
+  orchestrator:
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.merge.outputs.final }}
+    steps:
+      - name: تولید کلید جلسه
+        run: echo "SESSION_ID=$(date +%s)" >> $GITHUB_ENV
+        
+      - name: تقسیم کار به دو بسته
+        run: |
+          echo "بسته ۱" > task1.txt
+          echo "بسته ۲" > task2.txt
+          echo "کاربر محترم، کار شما به دو رانر موازی سپرده شد!"
+          
+      - name: آپلود بسته برای workerها
+        uses: actions/upload-artifact@v4
+        with:
+          name: task1-${{ env.SESSION_ID }}
+          path: task1.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: task2-${{ env.SESSION_ID }}
+          path: task2.txt
+
+  worker1:
+    runs-on: ubuntu-latest
+    needs: orchestrator
+    steps:
+      - name: دریافت بسته ۱
+        uses: actions/download-artifact@v4
+        with:
+          name: task1-${{ needs.orchestrator.outputs.session_id }}
+      - name: پردازش سنگین (مثلاً تبدیل ویدیو، تحلیل داده)
+        run: |
+          cat task1.txt > result1.txt
+          echo "پردازش توسط worker1 با ۷ گیگ رم انجام شد" >> result1.txt
+      - name: برگرداندن نتیجه
+        uses: actions/upload-artifact@v4
+        with:
+          name: result1-${{ needs.orchestrator.outputs.session_id }}
+          path: result1.txt
+
+  worker2:
+    runs-on: ubuntu-latest
+    needs: orchestrator
+    steps:
+      - name: دریافت بسته ۲
+        uses: actions/download-artifact@v4
+        with:
+          name: task2-${{ needs.orchestrator.outputs.session_id }}
+      - run: |
+          cat task2.txt > result2.txt
+          echo "پردازش توسط worker2 با ۷ گیگ رم انجام شد" >> result2.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: result2-${{ needs.orchestrator.outputs.session_id }}
+          path: result2.txt
+
+  merge:
+    runs-on: ubuntu-latest
+    needs: [worker1, worker2]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: result*-${{ needs.orchestrator.outputs.session_id }}
+      - run: |
+          cat result*/result*.txt > final_output.txt
+          echo "✅ کار ترکیب شد! خروجی نهایی:"
+          cat final_output.txt
