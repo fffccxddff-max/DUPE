@@ -148,47 +148,44 @@ jobs:
         # کپی کردن مود بیلد شده به پوشه اینستنس مود شده
         cp build/libs/*-1.0.0.jar test_env/modded/mods/fpsboost_pro.jar
 
-    # ۶. راه‌اندازی دسکتاپ مجازی و تونل کلودفلر
-    - name: Start Virtual Display and Cloudflare Tunnel
+    # ۶. اجرای یکپارچه محیط گرافیکی، تونل کلودفلر و اجرای هر دو نسخه ماینکرفت
+    - name: Start Virtual Desktop, Cloudflare Tunnel and Launch Minecraft
       run: |
-        # ساخت مانیتور مجازی با رزولوشن مناسب دو پنجره کنار هم
+        echo "=== ۱. راه‌اندازی مانیتور مجازی ==="
         Xvfb :1 -screen 0 1920x1080x24 &
-        sleep 2
+        sleep 3
         export DISPLAY=:1
         fluxbox &
+        sleep 2
         
-        # استارت VNC و نو‌وی‌ان‌سی روی پورت 8060
+        echo "=== ۲. راه‌اندازی VNC Server ==="
         x11vnc -display :1 -nopw -forever -shared -bg -rfbport 5900
-        /usr/share/novnc/utils/launch.sh --vnc localhost:5900 --listen 8060 &
+        sleep 2
+        
+        echo "=== ۳. راه‌اندازی وب‌سرور دسکتاپ (noVNC) ==="
+        websockify --web /usr/share/novnc 8060 localhost:5900 &
         sleep 3
         
-        # استارت تونل موقت کلودفلر
+        echo "=== ۴. ایجاد تونل موقت کلودفلر ==="
         cloudflared tunnel --url http://localhost:8060 > cloudflare.log 2>&1 &
-        sleep 6
+        sleep 8
         
         echo "=========================================================="
         echo "آدرس ورود به محیط تست گرافیکی کلاینت:"
         grep -o 'https://[-a-z0-9.]*.trycloudflare.com' cloudflare.log || cat cloudflare.log
         echo "=========================================================="
-
-    # ۷. اجرای همزمان هر دو نسخه با ۳ گیگابایت رم اختصاصی
-    - name: Launch Minecraft (Vanilla vs Modded)
-      run: |
-        export DISPLAY=:1
         
-        echo "=== در حال اجرای نسخه وانیلا (سمت چپ) ==="
+        echo "=== ۵. در حال اجرای نسخه وانیلا (۳ گیگابایت رم) ==="
         portablemc run 1.21.1 -u Vanilla_Test --offline --workdir ./test_env/vanilla --jvm-args="-Xmx3G -Xms1G" &
-        
         sleep 5
         
-        echo "=== در حال اجرای نسخه مود شده (سمت راست) ==="
+        echo "=== ۶. در حال اجرای نسخه مود شده (۳ گیگابایت رم) ==="
         portablemc run fabric:1.21.1 -u Modded_Test --offline --workdir ./test_env/modded --jvm-args="-Xmx3G -Xms1G" &
         
-        # زنده نگه داشتن سرور به مدت ۳۰ دقیقه برای تست شما
-        echo "محیط تست به مدت ۳۰ دقیقه فعال است..."
+        echo "محیط تست گرافیکی با موفقیت بالا آمد. شل به مدت ۳۰ دقیقه باز نگه‌داشته می‌شود..."
         sleep 1800
 
-    # ۸. آپلود فایل مود برای دانلود مستقیم
+    # ۷. آپلود فایل مود برای دانلود مستقیم
     - name: Upload Mod Jar Artifact
       uses: actions/upload-artifact@v4
       with:
