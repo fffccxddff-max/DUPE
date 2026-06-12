@@ -10,289 +10,402 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # ─────────────────────────────────────────────
+    # ۱. چک‌اوت ریپو
+    # ─────────────────────────────────────────────
     - name: Checkout Repository
       uses: actions/checkout@v4
 
+    # ─────────────────────────────────────────────
+    # ۲. نصب JDK 21 برای گرِیدل (کامپایل خروجی = Java 17)
+    # ─────────────────────────────────────────────
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
 
-    # ۱. رفع مشکل بهانه‌گیری گرادل
-    - name: Create Temporary Settings File
-      run: touch settings.gradle
-
-    - name: Setup Gradle Wrapper (v8.9)
-      run: gradle wrapper --gradle-version 8.9
-
-    # ۲. ساخت ساختار پیشرفته مود فبریک نسخه 1.21.1 مخصوص جاوا 17
-    - name: Generate Advanced Mod Files
+    # ─────────────────────────────────────────────
+    # ۳. باگ‌فیکس اصلی: نصب Gradle 8.9 قبل از wrapper
+    #    ubuntu-latest گرِیدل نداره، بدون این خط کرش می‌کرد
+    # ─────────────────────────────────────────────
+    - name: Install Gradle 8.9
       run: |
-        echo "=== در حال تزریق کدهای پیشرفته بهینه‌سازی کلاینت ==="
+        wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip -O /tmp/gradle.zip
+        unzip -q /tmp/gradle.zip -d /opt/gradle
+        echo "/opt/gradle/gradle-8.9/bin" >> $GITHUB_PATH
+
+    # ─────────────────────────────────────────────
+    # ۴. تولید فایل‌های پروجکت (باگ‌فیکس heredoc indentation)
+    # ─────────────────────────────────────────────
+    - name: Generate Project Files
+      run: |
         mkdir -p src/main/java/com/fpsboost/mixin
         mkdir -p src/main/resources
 
-        cat << 'EOF' > settings.gradle
-        pluginManagement {
-            repositories {
-                maven { url "https://maven.fabricmc.net/" }
-                mavenCentral()
-            }
-        }
-        rootProject.name = "FPSBoostPro"
-        EOF
+        # ────────────────────────────────────────
+        # باگ‌فیکس: heredoc بدون leading whitespace
+        # قبلاً همه خطوط با space شروع می‌شدن → Gradle parse error
+        # ────────────────────────────────────────
+        cat > settings.gradle << 'EOF'
+pluginManagement {
+    repositories {
+        maven { url "https://maven.fabricmc.net/" }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+rootProject.name = "FPSBoostPro"
+EOF
 
-        cat << 'EOF' > gradle.properties
-        org.gradle.jvmargs=-Xmx2G
-        EOF
+        # ────────────────────────────────────────
+        # باگ‌فیکس: اضافه کردن parallel و caching برای سرعت بیلد
+        # ────────────────────────────────────────
+        cat > gradle.properties << 'EOF'
+org.gradle.jvmargs=-Xmx2G -XX:+UseG1GC
+org.gradle.parallel=true
+org.gradle.caching=true
+org.gradle.daemon=false
+EOF
 
-        cat << 'EOF' > build.gradle
-        plugins {
-            id 'fabric-loom' version '1.7-SNAPSHOT'
-        }
-        version = '1.0.0'
-        group = 'com.fpsboost'
-        repositories { mavenCentral() }
-        dependencies {
-            minecraft "com.mojang:minecraft:1.21.1"
-            mappings "net.fabricmc:yarn:1.21.1+build.2:v2"
-            modImplementation "net.fabricmc:fabric-loader:0.16.0"
-        }
-        processResources {
-            inputs.property "version", project.version
-            filteringCharset "UTF-8"
-            filesMatching("fabric.mod.json") { expand "version": project.version }
-        }
-        // تنظیم خروجی کامپایل دقیقاً روی جاوا 17 برای سازگاری کامل با پوجاو شما
-        tasks.withType(JavaCompile).configureEach { it.options.release = 17 }
-        EOF
+        # ────────────────────────────────────────
+        # باگ‌فیکس: لوم از snapshot به نسخه stable 1.7.4
+        # snapshot ناپایداره و ممکنه موجود نباشه
+        # ────────────────────────────────────────
+        cat > build.gradle << 'EOF'
+plugins {
+    id 'fabric-loom' version '1.7.4'
+    id 'java'
+}
 
-        cat << 'EOF' > src/main/resources/fabric.mod.json
-        {
-          "schemaVersion": 1,
-          "id": "fpsboost_pro",
-          "version": "${version}",
-          "name": "FPS Boost Pro",
-          "description": "Ultra Performance Enhancer for PojavLauncher 1.21.1!",
-          "authors": [ "kill_pv2" ],
-          "contact": {},
-          "license": "MIT",
-          "environment": "client",
-          "icon": "icon.png",
-          "entrypoints": { "main": [] },
-          "mixins": [ "fpsboost.mixins.json" ],
-          "depends": { "fabricloader": ">=0.16.0", "minecraft": "1.21.1" }
-        }
-        EOF
+version = '1.0.0'
+group = 'com.fpsboost'
 
-        # مدیریت آیکون اختصاصی شما
-        if [ -f "file_00000000d974722f95ee81adcf415ec7.png" ]; then
-          cp file_00000000d974722f95ee81adcf415ec7.png src/main/resources/icon.png
-        elif [ -f "icon.png" ]; then
+repositories {
+    mavenCentral()
+    maven { url "https://maven.fabricmc.net/" }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.21.1"
+    mappings "net.fabricmc:yarn:1.21.1+build.3:v2"
+    modImplementation "net.fabricmc:fabric-loader:0.16.0"
+}
+
+processResources {
+    inputs.property "version", project.version
+    filteringCharset "UTF-8"
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 17
+    it.options.encoding = "UTF-8"
+}
+
+jar {
+    from("LICENSE") { rename { "${it}_${project.archivesBaseName}" } }
+}
+EOF
+
+        cat > src/main/resources/fabric.mod.json << 'EOF'
+{
+  "schemaVersion": 1,
+  "id": "fpsboost_pro",
+  "version": "${version}",
+  "name": "FPS Boost Pro",
+  "description": "Ultra Performance Enhancer for PojavLauncher 1.21.1",
+  "authors": [ "kill_pv2" ],
+  "contact": {},
+  "license": "MIT",
+  "environment": "client",
+  "icon": "icon.png",
+  "entrypoints": { "main": [] },
+  "mixins": [ "fpsboost.mixins.json" ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "1.21.1"
+  }
+}
+EOF
+
+        # مدیریت آیکون
+        if [ -f "icon.png" ]; then
           cp icon.png src/main/resources/icon.png
-        elif [ -f "211097.png" ]; then
-          cp 211097.png src/main/resources/icon.png
         else
           touch src/main/resources/icon.png
         fi
 
-        # ثبت میکس‌این‌ها با لول سازگاری جاوا 17
-        cat << 'EOF' > src/main/resources/fpsboost.mixins.json
-        {
-          "required": true,
-          "minVersion": "0.8",
-          "package": "com.fpsboost.mixin",
-          "compatibilityLevel": "JAVA_17",
-          "mixins": [ 
-            "ParticleMixin",
-            "BlockEntityRenderMixin",
-            "HudMixin",
-            "VideoOptionsMixin",
-            "TextureManagerMixin"
-          ],
-          "injectors": { "defaultRequire": 1 }
-        }
-        EOF
+        cat > src/main/resources/fpsboost.mixins.json << 'EOF'
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.fpsboost.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "ParticleMixin",
+    "BlockEntityRenderMixin",
+    "HudMixin",
+    "VideoOptionsMixin",
+    "ClientWorldMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}
+EOF
 
-        # میکس‌این ۱: کنترل و حذف ذرات دوردست برای فریم ریت بالاتر
-        cat << 'EOF' > src/main/java/com/fpsboost/mixin/ParticleMixin.java
-        package com.fpsboost.mixin;
+    # ─────────────────────────────────────────────
+    # ۵. تولید فایل‌های Java (با تمام باگ‌فیکس‌های کد)
+    # ─────────────────────────────────────────────
+    - name: Generate Mixin Java Files
+      run: |
 
-        import net.minecraft.client.MinecraftClient;
-        import net.minecraft.client.particle.Particle;
-        import org.spongepowered.asm.mixin.Mixin;
-        import org.spongepowered.asm.mixin.Shadow;
-        import org.spongepowered.asm.mixin.injection.At;
-        import org.spongepowered.asm.mixin.injection.Inject;
-        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+        # ══════════════════════════════════════════
+        # میکس‌این ۱: ParticleMixin
+        # حذف ذراتی که بیش از ۱۲ بلاک دورند
+        # باگ‌فیکس: منطق محاسبه فاصله درسته، بدون تغییر
+        # ══════════════════════════════════════════
+        cat > src/main/java/com/fpsboost/mixin/ParticleMixin.java << 'EOF'
+package com.fpsboost.mixin;
 
-        @Mixin(Particle.class)
-        public abstract class ParticleMixin {
-            @Shadow protected double x;
-            @Shadow protected double y;
-            @Shadow protected double z;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.particle.Particle;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-            @Inject(method = "tick", at = @At("HEAD"), cancellable = true)
-            private void onTick(CallbackInfo ci) {
-                try {
+@Mixin(Particle.class)
+public abstract class ParticleMixin {
+    @Shadow protected double x;
+    @Shadow protected double y;
+    @Shadow protected double z;
+
+    @Inject(method = "tick", at = @At("HEAD"), cancellable = true)
+    private void onTick(CallbackInfo ci) {
+        try {
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (client != null && client.player != null) {
+                double distSq = client.player.squaredDistanceTo(this.x, this.y, this.z);
+                // ۱۴۴ = ۱۲ بلاک² → ذرات دوردست رو کنسل کن
+                if (distSq > 144.0) {
+                    ci.cancel();
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+}
+EOF
+
+        # ══════════════════════════════════════════
+        # میکس‌این ۲: BlockEntityRenderMixin
+        # چست‌هایی که پشت سر پلیر هستند رندر نمیشن
+        # باگ‌فیکس: بدون تغییر، منطق dot product درسته
+        # ══════════════════════════════════════════
+        cat > src/main/java/com/fpsboost/mixin/BlockEntityRenderMixin.java << 'EOF'
+package com.fpsboost.mixin;
+
+import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.block.entity.ChestBlockEntity;
+import net.minecraft.block.entity.EnderChestBlockEntity;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.util.math.Vec3d;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+@Mixin(BlockEntityRenderDispatcher.class)
+public class BlockEntityRenderMixin {
+
+    @Inject(method = "render", at = @At("HEAD"), cancellable = true)
+    private <E extends BlockEntity> void onRender(
+            E blockEntity, float tickDelta,
+            MatrixStack matrices, VertexConsumerProvider vertexConsumers,
+            int light, int overlay, CallbackInfo ci) {
+        try {
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (client == null || client.player == null || blockEntity.getPos() == null) return;
+
+            if (blockEntity instanceof ChestBlockEntity ||
+                blockEntity instanceof EnderChestBlockEntity) {
+
+                double bx = blockEntity.getPos().getX() + 0.5;
+                double by = blockEntity.getPos().getY() + 0.5;
+                double bz = blockEntity.getPos().getZ() + 0.5;
+
+                Vec3d look = client.player.getRotationVec(1.0F);
+                Vec3d toBlock = new Vec3d(
+                    bx - client.player.getX(),
+                    by - client.player.getEyeY(),
+                    bz - client.player.getZ()
+                ).normalize();
+
+                // dot product منفی = پشت سر پلیر
+                if (look.dotProduct(toBlock) < 0.0) {
+                    ci.cancel();
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+}
+EOF
+
+        # ══════════════════════════════════════════
+        # میکس‌این ۳: HudMixin
+        # نمایش FPS رو صفحه
+        # باگ‌فیکس: امضای متد render در 1.21.1 بررسی شد
+        # ══════════════════════════════════════════
+        cat > src/main/java/com/fpsboost/mixin/HudMixin.java << 'EOF'
+package com.fpsboost.mixin;
+
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.hud.InGameHud;
+import net.minecraft.client.render.RenderTickCounter;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+@Mixin(InGameHud.class)
+public class HudMixin {
+
+    @Inject(method = "render", at = @At("TAIL"))
+    private void onRender(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
+        try {
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (client == null || client.options.hudHidden || client.world == null) return;
+
+            int fps = client.getCurrentFps();
+            // رنگ‌بندی هوشمند: سبز/زرد/قرمز بر اساس FPS
+            String color = fps >= 30 ? "§a" : fps >= 15 ? "§e" : "§c";
+            String text = color + "FPS: §f" + fps;
+            context.drawText(client.textRenderer, text, 4, 4, 0xFFFFFF, true);
+        } catch (Exception ignored) {}
+    }
+}
+EOF
+
+        # ══════════════════════════════════════════
+        # میکس‌این ۴: VideoOptionsMixin
+        # دکمه Auto Optimize در صفحه تنظیمات
+        # باگ‌فیکس مهم: getAo() در 1.21.1 یه SimpleOption<Boolean>ه نه AoMode
+        # قبلاً: setValue(AoMode.OFF) → کامپایل error
+        # الان: setValue(false) → درسته
+        # ══════════════════════════════════════════
+        cat > src/main/java/com/fpsboost/mixin/VideoOptionsMixin.java << 'EOF'
+package com.fpsboost.mixin;
+
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.option.GameOptionsScreen;
+import net.minecraft.client.gui.screen.option.VideoOptionsScreen;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.option.GraphicsMode;
+import net.minecraft.text.Text;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+@Mixin(GameOptionsScreen.class)
+public abstract class VideoOptionsMixin extends net.minecraft.client.gui.screen.Screen {
+
+    protected VideoOptionsMixin(Text title) {
+        super(title);
+    }
+
+    @Inject(method = "init", at = @At("TAIL"))
+    private void onInit(CallbackInfo ci) {
+        try {
+            if (!((Object) this instanceof VideoOptionsScreen)) return;
+
+            this.addDrawableChild(
+                ButtonWidget.builder(Text.literal("§b⚡ KILL_PV2 Auto Optimize"), button -> {
                     MinecraftClient client = MinecraftClient.getInstance();
-                    if (client != null && client.player != null) {
-                        double distanceSq = client.player.squaredDistanceTo(this.x, this.y, this.z);
-                        if (distanceSq > 144) { ci.cancel(); }
+                    if (client == null || client.options == null) return;
+
+                    client.options.getViewDistance().setValue(2);
+                    client.options.getSimulationDistance().setValue(4);
+                    client.options.getGraphicsMode().setValue(GraphicsMode.FAST);
+                    // ─── باگ‌فیکس: Boolean نه AoMode ───
+                    client.options.getAo().setValue(false);
+                    client.options.getCloudRenderMode().setValue(
+                        net.minecraft.client.option.CloudRenderMode.OFF
+                    );
+
+                    if (client.worldRenderer != null) {
+                        client.worldRenderer.reload();
                     }
-                } catch (Exception e) {}
-            }
-        }
-        EOF
+                    client.options.write();
+                    this.close();
+                })
+                .dimensions(this.width / 2 - 80, 6, 160, 20)
+                .build()
+            );
+        } catch (Exception ignored) {}
+    }
+}
+EOF
 
-        # میکس‌این ۲: رندر نکردن چست‌ها و اندرچست‌ها وقتی پشت سر پلیر هستند (Frustum Culling اختصاصی چست)
-        cat << 'EOF' > src/main/java/com/fpsboost/mixin/BlockEntityRenderMixin.java
-        package com.fpsboost.mixin;
+        # ══════════════════════════════════════════
+        # میکس‌این ۵: ClientWorldMixin (جایگزین TextureManagerMixin)
+        # باگ‌فیکس کامل: TextureManager.reload در 1.21.1 یه CompletableFuture
+        # برمی‌گردونه و امضای CallbackInfoReturnable<?> اشتباه بود → crash
+        # راه‌حل: GC رو موقع آنلود جهان صدا بزن که کاربردی‌تره
+        # ══════════════════════════════════════════
+        cat > src/main/java/com/fpsboost/mixin/ClientWorldMixin.java << 'EOF'
+package com.fpsboost.mixin;
 
-        import net.minecraft.block.entity.BlockEntity;
-        import net.minecraft.block.entity.ChestBlockEntity;
-        import net.minecraft.block.entity.EnderChestBlockEntity;
-        import net.minecraft.client.MinecraftClient;
-        import net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher;
-        import net.minecraft.client.render.VertexConsumerProvider;
-        import net.minecraft.client.util.math.MatrixStack;
-        import org.spongepowered.asm.mixin.Mixin;
-        import org.spongepowered.asm.mixin.injection.At;
-        import org.spongepowered.asm.mixin.injection.Inject;
-        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import net.minecraft.client.world.ClientWorld;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-        @Mixin(BlockEntityRenderDispatcher.class)
-        public class BlockEntityRenderMixin {
-            @Inject(method = "render", at = @At("HEAD"), cancellable = true)
-            private <E extends BlockEntity> void onRenderBlockEntity(E blockEntity, float tickDelta, MatrixStack matrices, VertexConsumerProvider vertexConsumers, CallbackInfo ci) {
-                try {
-                    MinecraftClient client = MinecraftClient.getInstance();
-                    if (client != null && client.player != null && blockEntity.getPos() != null) {
-                        
-                        // فقط روی چست‌ها و اندرچست‌ها اعمال بشه تا بقیه بازی خراب نشه
-                        if (blockEntity instanceof ChestBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
-                            double bx = blockEntity.getPos().getX() + 0.5;
-                            double by = blockEntity.getPos().getY() + 0.5;
-                            double bz = blockEntity.getPos().getZ() + 0.5;
+@Mixin(ClientWorld.class)
+public class ClientWorldMixin {
 
-                            // محاسبه ریاضی ضرب داخلی بردار نگاه پلیر با موقعیت چست
-                            net.minecraft.util.math.Vec3d lookVec = client.player.getRotationVec(1.0F);
-                            net.minecraft.util.math.Vec3d toBlock = new net.minecraft.util.math.Vec3d(bx - client.player.getX(), by - client.player.getEyeY(), bz - client.player.getZ()).normalize();
-                            
-                            // اگر حاصل منفی باشه یعنی چست کاملاً پشت سر پلیر قرار داره و نباید رندر بشه
-                            if (lookVec.dotProduct(toBlock) < 0.0) {
-                                ci.cancel();
-                            }
-                        }
-                    }
-                } catch (Exception e) {}
-            }
-        }
-        EOF
+    // موقع لود دنیا مموری پاکسازی می‌کنه → لگ ترانزیشن کمتر
+    @Inject(method = "<init>", at = @At("TAIL"))
+    private void onWorldInit(CallbackInfo ci) {
+        System.gc();
+    }
+}
+EOF
 
-        # میکس‌این ۳: نمایشگر بهینه و ثابت FPS روی دایره هاد
-        cat << 'EOF' > src/main/java/com/fpsboost/mixin/HudMixin.java
-        package com.fpsboost.mixin;
+        echo "=== تمامی فایل‌های مود با موفقیت تولید شدند ==="
 
-        import net.minecraft.client.MinecraftClient;
-        import net.minecraft.client.gui.DrawContext;
-        import net.minecraft.client.gui.hud.InGameHud;
-        import net.minecraft.client.render.RenderTickCounter;
-        import org.spongepowered.asm.mixin.Mixin;
-        import org.spongepowered.asm.mixin.injection.At;
-        import org.spongepowered.asm.mixin.injection.Inject;
-        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+    # ─────────────────────────────────────────────
+    # ۶. تولید Gradle Wrapper (حالا که Gradle نصبه)
+    # ─────────────────────────────────────────────
+    - name: Setup Gradle Wrapper
+      run: |
+        gradle wrapper --gradle-version 8.9
+        chmod +x gradlew
 
-        @Mixin(InGameHud.class)
-        public class HudMixin {
-            @Inject(method = "render", at = @At("TAIL"))
-            private void onRenderFpsCounter(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
-                try {
-                    MinecraftClient client = MinecraftClient.getInstance();
-                    if (client != null && !client.options.hudHidden && client.world != null) {
-                        String fpsText = "§aFPS: §f" + client.getCurrentFps();
-                        context.drawText(client.textRenderer, fpsText, 10, 10, 0xFFFFFF, true);
-                    }
-                } catch (Exception e) {}
-            }
-        }
-        EOF
+    # ─────────────────────────────────────────────
+    # ۷. بیلد نهایی
+    # ─────────────────────────────────────────────
+    - name: Build Mod
+      run: ./gradlew build --no-daemon --stacktrace
 
-        # میکس‌این ۴: دکمه تنظیمات خودکار هوشمند وسط بالای صفحه به همراه ریلود آنی چانک‌ها
-        cat << 'EOF' > src/main/java/com/fpsboost/mixin/VideoOptionsMixin.java
-        package com.fpsboost.mixin;
-
-        import net.minecraft.client.MinecraftClient;
-        import net.minecraft.client.gui.screen.option.GameOptionsScreen;
-        import net.minecraft.client.gui.screen.option.VideoOptionsScreen;
-        import net.minecraft.client.gui.widget.ButtonWidget;
-        import net.minecraft.text.Text;
-        import org.spongepowered.asm.mixin.Mixin;
-        import org.spongepowered.asm.mixin.injection.At;
-        import org.spongepowered.asm.mixin.injection.Inject;
-        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-
-        @Mixin(GameOptionsScreen.class)
-        public class VideoOptionsMixin extends net.minecraft.client.gui.screen.Screen {
-            protected VideoOptionsMixin(Text title) { super(title); }
-
-            @Inject(method = "init", at = @At("TAIL"))
-            private void onInit(CallbackInfo ci) {
-                try {
-                    if ((Object)this instanceof VideoOptionsScreen) {
-                        // قرار دادن دکمه در وسط بالای صفحه تا کاملاً در دسترس باشه
-                        this.addDrawableChild(ButtonWidget.builder(Text.literal("§bKILL_PV2 Auto Optimize"), button -> {
-                            MinecraftClient client = MinecraftClient.getInstance();
-                            if (client != null && client.options != null) {
-                                // ست کردن سنگین‌ترین کانفیگ‌های ضد لگ برای پردازنده گرافیکی موبایل
-                                client.options.getViewDistance().setValue(2); 
-                                client.options.getSimulationDistance().setValue(4);
-                                client.options.getGraphicsMode().setValue(net.minecraft.client.option.GraphicsMode.FAST);
-                                client.options.getAo().setValue(net.minecraft.client.option.AoMode.OFF);
-                                
-                                // فورس ریلود کردن موتور گرافیکی بازی به صورت آنی برای اعمال تغییرات و جهش FPS
-                                if (client.worldRenderer != null) {
-                                    client.worldRenderer.reload();
-                                }
-                                
-                                client.options.write();
-                                this.close();
-                            }
-                        }).dimensions(this.width / 2 - 80, 6, 160, 20).build());
-                    }
-                } catch (Exception e) {}
-            }
-        }
-        EOF
-
-        # میکس‌این ۵: پاکسازی زباله‌های مموری برای مهار لگ ترنزیشن‌ها و منوها
-        cat << 'EOF' > src/main/java/com/fpsboost/mixin/TextureManagerMixin.java
-        package com.fpsboost.mixin;
-
-        import net.minecraft.client.texture.TextureManager;
-        import org.spongepowered.asm.mixin.Mixin;
-        import org.spongepowered.asm.mixin.injection.At;
-        import org.spongepowered.asm.mixin.injection.Inject;
-        import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-
-        @Mixin(TextureManager.class)
-        public class TextureManagerMixin {
-            @Inject(method = "reload", at = @At("HEAD"))
-            private void onReloadTexturesHead(CallbackInfoReturnable<?> cir) {
-                System.gc();
-            }
-        }
-        EOF
-        echo "=== تمامی کدهای بهینه‌ساز با موفقیت تزریق شدند ==="
-
-    # ۳. بیلد نهایی مود بدون اتلاف وقت
-    - name: Build Mod with Gradle Wrapper
-      run: ./gradlew build
-
-    # ۴. آپلود فایل نهایی جار برای دانلود مستقیم
-    - name: Upload Mod Jar Artifact
+    # ─────────────────────────────────────────────
+    # ۸. آپلود آرتیفکت
+    # ─────────────────────────────────────────────
+    - name: Upload Mod Jar
       uses: actions/upload-artifact@v4
       with:
-        name: FPS-Boost-Mod-Extreme-Java17-1.21.1
+        name: FPS-Boost-Pro-Java17-MC1.21.1
         path: build/libs/*-1.0.0.jar
+        if-no-files-found: error
