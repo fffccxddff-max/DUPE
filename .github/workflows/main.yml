@@ -128,11 +128,12 @@ jobs:
     - name: Build Mod with Gradle Wrapper
       run: ./gradlew build
 
-    # ۴. نصب نیازمندی‌های محیط تست (دسکتاپ مجازی، نو‌وی‌ان‌سی و کلودفلر)
+    # ۴. نصب نیازمندی‌ها + پکیج‌های شبیه‌ساز گرافیک Mesa و ترمینال xterm
     - name: Install Test Environment Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y xvfb fluxbox x11vnc novnc websockify mesa-utils python3-pip wget
+        sudo apt-get install -y xvfb fluxbox x11vnc novnc websockify wget xterm python3-pip
+        sudo apt-get install -y libgl1-mesa-dri libglx-mesa0 libgbm1 mesa-utils
         pip3 install portablemc --break-system-packages
         
         # نصب کلودفلر
@@ -148,7 +149,7 @@ jobs:
         # کپی کردن مود بیلد شده به پوشه اینستنس مود شده
         cp build/libs/*-1.0.0.jar test_env/modded/mods/fpsboost_pro.jar
 
-    # ۶. اجرای یکپارچه محیط گرافیکی، تونل کلودفلر و اجرای هر دو نسخه ماینکرفت
+    # ۶. اجرای یکپارچه محیط گرافیکی، تونل کلودفلر و لاگ زنده در دسکتاپ
     - name: Start Virtual Desktop, Cloudflare Tunnel and Launch Minecraft
       run: |
         echo "=== ۱. راه‌اندازی مانیتور مجازی ==="
@@ -175,12 +176,14 @@ jobs:
         grep -o 'https://[-a-z0-9.]*.trycloudflare.com' cloudflare.log || cat cloudflare.log
         echo "=========================================================="
         
-        echo "=== ۵. در حال اجرای نسخه وانیلا (۳ گیگابایت رم) ==="
-        portablemc run 1.21.1 -u Vanilla_Test --offline --workdir ./test_env/vanilla --jvm-args="-Xmx3G -Xms1G" &
-        sleep 5
+        echo "=== ۵. اجرای دانلود و ران کردن ماینکرفت‌ها درون پنجره‌های ترمینال زنده ==="
         
-        echo "=== ۶. در حال اجرای نسخه مود شده (۳ گیگابایت رم) ==="
-        portablemc run fabric:1.21.1 -u Modded_Test --offline --workdir ./test_env/modded --jvm-args="-Xmx3G -Xms1G" &
+        # اجرای کلاینت وانیلا در سمت چپ دسکتاپ
+        xterm -geometry 90x25+50+100 -title "Vanilla Minecraft Status" -e "portablemc run 1.21.1 -u Vanilla_Test --offline --workdir ./test_env/vanilla --jvm-args='-Xmx3G -Xms1G'; echo 'Process Finished. Press Enter to close...'; read" &
+        sleep 3
+        
+        # اجرای کلاینت مود شده در سمت راست دسکتاپ
+        xterm -geometry 90x25+1000+100 -title "Modded Fabric Minecraft Status" -e "portablemc run fabric:1.21.1 -u Modded_Test --offline --workdir ./test_env/modded --jvm-args='-Xmx3G -Xms1G'; echo 'Process Finished. Press Enter to close...'; read" &
         
         echo "محیط تست گرافیکی با موفقیت بالا آمد. شل به مدت ۳۰ دقیقه باز نگه‌داشته می‌شود..."
         sleep 1800
