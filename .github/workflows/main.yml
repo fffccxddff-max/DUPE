@@ -178,12 +178,12 @@ jobs:
         
         echo "=== ۵. اجرای دانلود و ران کردن ماینکرفت‌ها درون پنجره‌های ترمینال زنده ==="
         
-        # اجرای کلاینت وانیلا در سمت چپ دسکتاپ
-        xterm -geometry 90x25+50+100 -title "Vanilla Minecraft Status" -e "portablemc run 1.21.1 -u Vanilla_Test --offline --workdir ./test_env/vanilla --jvm-args='-Xmx3G -Xms1G'; echo 'Process Finished. Press Enter to close...'; read" &
+        # اجرای کلاینت وانیلا با دستور درست start
+        xterm -geometry 90x25+50+100 -title "Vanilla Minecraft Status" -e "portablemc start 1.21.1 -u Vanilla_Test --offline --workdir ./test_env/vanilla --jvm-args='-Xmx3G -Xms1G'; echo 'Process Finished. Press Enter to close...'; read" &
         sleep 3
         
-        # اجرای کلاینت مود شده در سمت راست دسکتاپ
-        xterm -geometry 90x25+1000+100 -title "Modded Fabric Minecraft Status" -e "portablemc run fabric:1.21.1 -u Modded_Test --offline --workdir ./test_env/modded --jvm-args='-Xmx3G -Xms1G'; echo 'Process Finished. Press Enter to close...'; read" &
+        # اجرای کلاینت مود شده با دستور درست start
+        xterm -geometry 90x25+1000+100 -title "Modded Fabric Minecraft Status" -e "portablemc start fabric:1.21.1 -u Modded_Test --offline --workdir ./test_env/modded --jvm-args='-Xmx3G -Xms1G'; echo 'Process Finished. Press Enter to close...'; read" &
         
         echo "محیط تست گرافیکی با موفقیت بالا آمد. شل به مدت ۳۰ دقیقه باز نگه‌داشته می‌شود..."
         sleep 1800
