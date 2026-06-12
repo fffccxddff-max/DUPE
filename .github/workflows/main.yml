@@ -3,7 +3,7 @@ name: Auto Build FPS Boost Mod
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # این دکمه اجرای دستی رو توی پنل گیت‌هاب فعال می‌کنه
+  workflow_dispatch: # فعال کردن دکمه اجرای دستی توی پنل گیت‌هاب
 
 jobs:
   build-mod:
@@ -18,6 +18,10 @@ jobs:
       with:
         java-version: '21'
         distribution: 'temurin'
+
+    # اول رپر گرادل رو می‌سازیم تا با ساختار پلاگین تداخل پیدا نکنه
+    - name: Setup Gradle Wrapper (v8.9)
+      run: gradle wrapper --gradle-version 8.9
 
     - name: Generate Project Structure and Files
       run: |
@@ -155,10 +159,8 @@ jobs:
         
         echo "=== ساخت فایل‌ها با موفقیت انجام شد ==="
 
-    - name: Setup Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.9
-
-    - name: Build Mod with Gradle
+    # اجرای کامپایل با رپر ساخته شده (نسخه 8.9)
+    - name: Build Mod with Gradle Wrapper
       run: ./gradlew build
 
     - name: Upload Mod Jar Artifact
