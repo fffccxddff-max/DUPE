@@ -19,7 +19,11 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
 
-    # اول رپر گرادل رو می‌سازیم تا با ساختار پلاگین تداخل پیدا نکنه
+    # ساخت یک فایل خالی موقت تا گرادل ۹ ارور ندهد
+    - name: Create Temporary Settings File
+      run: touch settings.gradle
+
+    # حالا رپر گرادل ۸.۹ با موفقیت ساخته می‌شود
     - name: Setup Gradle Wrapper (v8.9)
       run: gradle wrapper --gradle-version 8.9
 
@@ -31,7 +35,7 @@ jobs:
         mkdir -p src/main/java/com/fpsboost/mixin
         mkdir -p src/main/resources
 
-        # ۲. ساخت فایل settings.gradle
+        # ۲. بازنویسی و ساخت فایل اصلی settings.gradle
         cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
@@ -159,7 +163,7 @@ jobs:
         
         echo "=== ساخت فایل‌ها با موفقیت انجام شد ==="
 
-    # اجرای کامپایل با رپر ساخته شده (نسخه 8.9)
+    # اجرای کامپایل با رپر اختصاصی نسخه 8.9
     - name: Build Mod with Gradle Wrapper
       run: ./gradlew build
 
