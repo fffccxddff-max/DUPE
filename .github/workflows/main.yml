@@ -255,17 +255,30 @@ jobs:
         public class VideoOptionsMixin extends net.minecraft.client.gui.screen.Screen {
             protected VideoOptionsMixin(Text title) { super(title); }
 
-            @Inject(method = "init", at = @At("TAIL"))
+            @Inject(method = "init()V", at = @At("TAIL"))
             private void onInit(CallbackInfo ci) {
                 try {
                     this.addDrawableChild(ButtonWidget.builder(Text.literal("§bKILL_PV2 Auto Optimize"), button -> {
                         MinecraftClient client = MinecraftClient.getInstance();
                         if (client != null && client.options != null) {
                             // ست کردن خودکار بهینه‌ترین کانفیگ ممکنه موبایل بدون دراپ فریم
-                            client.options.getRenderDistance().setValue(4);
+                            client.options.getViewDistance().setValue(4);
                             client.options.getSimulationDistance().setValue(4);
-                            client.options.getAo().setValue(net.minecraft.client.option.AoMode.OFF);
                             client.options.getGraphicsMode().setValue(net.minecraft.client.option.GraphicsMode.FAST);
+                            
+                            // بهینه‌سازی پویا و کاملاً سازگار بدون کرش برای خاموش کردن Ambient Occlusion
+                            try {
+                                Object[] aoConstants = client.options.getAo().getValue().getClass().getEnumConstants();
+                                Object offMode = aoConstants[0];
+                                for (Object constant : aoConstants) {
+                                    if (constant.toString().equalsIgnoreCase("OFF") || constant.toString().equalsIgnoreCase("FALSE")) {
+                                        offMode = constant;
+                                        break;
+                                    }
+                                }
+                                ((net.minecraft.client.option.SimpleOption) client.options.getAo()).setValue(offMode);
+                            } catch (Exception e) {}
+
                             client.options.write();
                             this.close();
                         }
