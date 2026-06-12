@@ -26,7 +26,7 @@ jobs:
     - name: Setup Gradle Wrapper (v8.9)
       run: gradle wrapper --gradle-version 8.9
 
-    # ۲. ساخت ساختار پیشرفته مود فبریک نسخه 1.21.1 به همراه لوگوی اختصاصی شما
+    # ۲. ساخت ساختار پیشرفته مود فبریک نسخه 1.21.1 مخصوص جاوا 17
     - name: Generate Advanced Mod Files
       run: |
         echo "=== در حال تزریق کدهای پیشرفته بهینه‌سازی کلاینت ==="
@@ -64,7 +64,8 @@ jobs:
             filteringCharset "UTF-8"
             filesMatching("fabric.mod.json") { expand "version": project.version }
         }
-        tasks.withType(JavaCompile).configureEach { it.options.release = 21 }
+        // تنظیم خروجی کامپایل دقیقاً روی جاوا 17 برای سازگاری کامل با پوجاو شما
+        tasks.withType(JavaCompile).configureEach { it.options.release = 17 }
         EOF
 
         cat << 'EOF' > src/main/resources/fabric.mod.json
@@ -85,7 +86,7 @@ jobs:
         }
         EOF
 
-        # کپی کردن بنر طراحی شده اختصاصی شما با نام فایل جدید به عنوان آیکون اصلی مود
+        # مدیریت آیکون اختصاصی شما
         if [ -f "file_00000000d974722f95ee81adcf415ec7.png" ]; then
           cp file_00000000d974722f95ee81adcf415ec7.png src/main/resources/icon.png
         elif [ -f "icon.png" ]; then
@@ -96,17 +97,16 @@ jobs:
           touch src/main/resources/icon.png
         fi
 
-        # ثبت تمامی میکس‌این‌های پیشرفته ضد‌لگ سرور و چیت کلاینت
+        # ثبت میکس‌این‌ها با لول سازگاری جاوا 17
         cat << 'EOF' > src/main/resources/fpsboost.mixins.json
         {
           "required": true,
           "minVersion": "0.8",
           "package": "com.fpsboost.mixin",
-          "compatibilityLevel": "JAVA_21",
+          "compatibilityLevel": "JAVA_17",
           "mixins": [ 
             "ParticleMixin",
             "BlockEntityRenderMixin",
-            "EntityRenderMixin",
             "HudMixin",
             "VideoOptionsMixin",
             "TextureManagerMixin"
@@ -115,7 +115,7 @@ jobs:
         }
         EOF
 
-        # میکس‌این ۱: کنترل ذرات
+        # میکس‌این ۱: کنترل و حذف ذرات دوردست برای فریم ریت بالاتر
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/ParticleMixin.java
         package com.fpsboost.mixin;
 
@@ -139,18 +139,20 @@ jobs:
                     MinecraftClient client = MinecraftClient.getInstance();
                     if (client != null && client.player != null) {
                         double distanceSq = client.player.squaredDistanceTo(this.x, this.y, this.z);
-                        if (distanceSq > 256) { ci.cancel(); }
+                        if (distanceSq > 144) { ci.cancel(); }
                     }
                 } catch (Exception e) {}
             }
         }
         EOF
 
-        # میکس‌این ۲: کات کردن رندر بلاک‌انتیتی‌ها و چست‌های دور دست + حذف هوشمند رندر چست‌های پشت سر پلیر
+        # میکس‌این ۲: رندر نکردن چست‌ها و اندرچست‌ها وقتی پشت سر پلیر هستند (Frustum Culling اختصاصی چست)
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/BlockEntityRenderMixin.java
         package com.fpsboost.mixin;
 
         import net.minecraft.block.entity.BlockEntity;
+        import net.minecraft.block.entity.ChestBlockEntity;
+        import net.minecraft.block.entity.EnderChestBlockEntity;
         import net.minecraft.client.MinecraftClient;
         import net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher;
         import net.minecraft.client.render.VertexConsumerProvider;
@@ -167,22 +169,21 @@ jobs:
                 try {
                     MinecraftClient client = MinecraftClient.getInstance();
                     if (client != null && client.player != null && blockEntity.getPos() != null) {
-                        double bx = blockEntity.getPos().getX() + 0.5;
-                        double by = blockEntity.getPos().getY() + 0.5;
-                        double bz = blockEntity.getPos().getZ() + 0.5;
+                        
+                        // فقط روی چست‌ها و اندرچست‌ها اعمال بشه تا بقیه بازی خراب نشه
+                        if (blockEntity instanceof ChestBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
+                            double bx = blockEntity.getPos().getX() + 0.5;
+                            double by = blockEntity.getPos().getY() + 0.5;
+                            double bz = blockEntity.getPos().getZ() + 0.5;
 
-                        // فیلتر فاصله عددی چست‌ها برای موبایل
-                        double distSq = client.player.squaredDistanceTo(bx, by, bz);
-                        if (distSq > 1024) { 
-                            ci.cancel(); 
-                            return;
-                        }
-
-                        // سیستم پیشرفته حذف چست‌ها و وسایلی که دقیقاً پشت سر پلیر هستند
-                        net.minecraft.util.math.Vec3d lookVec = client.player.getRotationVec(1.0F);
-                        net.minecraft.util.math.Vec3d toBlock = new net.minecraft.util.math.Vec3d(bx - client.player.getX(), by - client.player.getEyeY(), bz - client.player.getZ()).normalize();
-                        if (lookVec.dotProduct(toBlock) < -0.15) {
-                            ci.cancel();
+                            // محاسبه ریاضی ضرب داخلی بردار نگاه پلیر با موقعیت چست
+                            net.minecraft.util.math.Vec3d lookVec = client.player.getRotationVec(1.0F);
+                            net.minecraft.util.math.Vec3d toBlock = new net.minecraft.util.math.Vec3d(bx - client.player.getX(), by - client.player.getEyeY(), bz - client.player.getZ()).normalize();
+                            
+                            // اگر حاصل منفی باشه یعنی چست کاملاً پشت سر پلیر قرار داره و نباید رندر بشه
+                            if (lookVec.dotProduct(toBlock) < 0.0) {
+                                ci.cancel();
+                            }
                         }
                     }
                 } catch (Exception e) {}
@@ -190,61 +191,7 @@ jobs:
         }
         EOF
 
-        # میکس‌این ۳: فیلتر رندر انتیتی‌ها و ماب‌های پشت سر پلیر و فواصل زیاد
-        cat << 'EOF' > src/main/java/com/fpsboost/mixin/EntityRenderMixin.java
-        package com.fpsboost.mixin;
-
-        import net.minecraft.client.MinecraftClient;
-        import net.minecraft.client.render.VertexConsumerProvider;
-        import net.minecraft.client.render.entity.EntityRenderDispatcher;
-        import net.minecraft.client.util.math.MatrixStack;
-        import net.minecraft.entity.Entity;
-        import org.spongepowered.asm.mixin.Mixin;
-        import org.spongepowered.asm.mixin.injection.At;
-        import org.spongepowered.asm.mixin.injection.Inject;
-        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-
-        @Mixin(EntityRenderDispatcher.class)
-        public class EntityRenderMixin {
-            @Inject(method = "render", at = @At("HEAD"), cancellable = true)
-            private <E extends Entity> void onRenderEntity(E entity, double x, double y, double z, float yaw, float tickDelta, MatrixStack matrices, VertexConsumerProvider vertexConsumers, int light, CallbackInfo ci) {
-                try {
-                    MinecraftClient client = MinecraftClient.getInstance();
-                    if (client == null || client.player == null || entity == null) return;
-
-                    // عدم حذف رندر خود پلیر
-                    if (entity == client.player) return;
-
-                    String className = entity.getClass().getName();
-                    // حذف کامل پردازش گرافیکی سنگین آرمور استندها در سرور
-                    if (className.contains("ArmorStand")) {
-                        ci.cancel();
-                        return;
-                    }
-                    // بهینه‌سازی رندر کریستال‌ها در فواصل زیاد برای مهار لگ چیت کلاینت‌ها
-                    if (className.contains("EndCrystal") || className.contains("Crystal")) {
-                        if (client.player.squaredDistanceTo(entity) > 576) {
-                            ci.cancel();
-                            return;
-                        }
-                    }
-
-                    // الگوریتم ریاضی فوق سریع حذف انتیتی‌های پشت دید پلیر
-                    double ex = entity.getX();
-                    double ey = entity.getY() + (entity.getHeight() / 2.0);
-                    double ez = entity.getZ();
-
-                    net.minecraft.util.math.Vec3d lookVec = client.player.getRotationVec(1.0F);
-                    net.minecraft.util.math.Vec3d toEntity = new net.minecraft.util.math.Vec3d(ex - client.player.getX(), ey - client.player.getEyeY(), ez - client.player.getZ()).normalize();
-                    if (lookVec.dotProduct(toEntity) < -0.15) {
-                        ci.cancel();
-                    }
-                } catch (Exception e) {}
-            }
-        }
-        EOF
-
-        # میکس‌این ۴: نمایشگر بهینه و ثابت FPS روی دایره هاد
+        # میکس‌این ۳: نمایشگر بهینه و ثابت FPS روی دایره هاد
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/HudMixin.java
         package com.fpsboost.mixin;
 
@@ -272,7 +219,7 @@ jobs:
         }
         EOF
 
-        # میکس‌این ۵: تزریق دکمه تنظیمات خودکار بدون کرش (تغییر متد هدف از وانیلا به ریشه کلیدهای آپشن)
+        # میکس‌این ۴: دکمه تنظیمات خودکار هوشمند وسط بالای صفحه به همراه ریلود آنی چانک‌ها
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/VideoOptionsMixin.java
         package com.fpsboost.mixin;
 
@@ -293,38 +240,33 @@ jobs:
             @Inject(method = "init", at = @At("TAIL"))
             private void onInit(CallbackInfo ci) {
                 try {
-                    // چک می‌کنیم که دکمه فقط و فقط روی صفحه تنظیمات گرافیکی ویدیو بیاد
                     if ((Object)this instanceof VideoOptionsScreen) {
+                        // قرار دادن دکمه در وسط بالای صفحه تا کاملاً در دسترس باشه
                         this.addDrawableChild(ButtonWidget.builder(Text.literal("§bKILL_PV2 Auto Optimize"), button -> {
                             MinecraftClient client = MinecraftClient.getInstance();
                             if (client != null && client.options != null) {
-                                client.options.getViewDistance().setValue(4);
+                                // ست کردن سنگین‌ترین کانفیگ‌های ضد لگ برای پردازنده گرافیکی موبایل
+                                client.options.getViewDistance().setValue(2); 
                                 client.options.getSimulationDistance().setValue(4);
                                 client.options.getGraphicsMode().setValue(net.minecraft.client.option.GraphicsMode.FAST);
+                                client.options.getAo().setValue(net.minecraft.client.option.AoMode.OFF);
                                 
-                                try {
-                                    Object[] aoConstants = client.options.getAo().getValue().getClass().getEnumConstants();
-                                    Object offMode = aoConstants[0];
-                                    for (Object constant : aoConstants) {
-                                        if (constant.toString().equalsIgnoreCase("OFF") || constant.toString().equalsIgnoreCase("FALSE")) {
-                                            offMode = constant;
-                                            break;
-                                        }
-                                    }
-                                    ((net.minecraft.client.option.SimpleOption) client.options.getAo()).setValue(offMode);
-                                } catch (Exception e) {}
-
+                                // فورس ریلود کردن موتور گرافیکی بازی به صورت آنی برای اعمال تغییرات و جهش FPS
+                                if (client.worldRenderer != null) {
+                                    client.worldRenderer.reload();
+                                }
+                                
                                 client.options.write();
                                 this.close();
                             }
-                        }).dimensions(8, 8, 160, 20).build());
+                        }).dimensions(this.width / 2 - 80, 6, 160, 20).build());
                     }
                 } catch (Exception e) {}
             }
         }
         EOF
 
-        # میکس‌این ۶: آزادسازی رم مسدود شده درایور حین لود یا تغییر ریسورس‌پک (ضد کرش اندروید)
+        # میکس‌این ۵: پاکسازی زباله‌های مموری برای مهار لگ ترنزیشن‌ها و منوها
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/TextureManagerMixin.java
         package com.fpsboost.mixin;
 
@@ -352,5 +294,5 @@ jobs:
     - name: Upload Mod Jar Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: FPS-Boost-Mod-Extreme-1.21.1
+        name: FPS-Boost-Mod-Extreme-Java17-1.21.1
         path: build/libs/*-1.0.0.jar
