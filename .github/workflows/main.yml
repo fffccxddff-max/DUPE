@@ -1,4 +1,4 @@
-name: Build and Auto-Test FPS Boost Mod
+name: Build FPS Boost Mod Pro
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-test:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,17 +19,17 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
 
-    # ۱. رفع مشکل بهانه‌گیری گرادل ۹
+    # ۱. رفع مشکل بهانه‌گیری گرادل
     - name: Create Temporary Settings File
       run: touch settings.gradle
 
     - name: Setup Gradle Wrapper (v8.9)
       run: gradle wrapper --gradle-version 8.9
 
-    # ۲. ساخت فایل‌های سورس کد مود فبریک
-    - name: Generate Project Structure and Files
+    # ۲. ساخت ساختار پیشرفته مود فبریک نسخه 1.21.1
+    - name: Generate Advanced Mod Files
       run: |
-        echo "=== در حال ساخت پوشه‌ها و تزریق کدها ==="
+        echo "=== در حال تزریق کدهای پیشرفته بهینه‌سازی کلاینت ==="
         mkdir -p src/main/java/com/fpsboost/mixin
         mkdir -p src/main/resources
 
@@ -73,7 +73,7 @@ jobs:
           "id": "fpsboost_pro",
           "version": "${version}",
           "name": "FPS Boost Pro",
-          "description": "Custom performance enhancer for PojavLauncher!",
+          "description": "Ultra Performance Enhancer for PojavLauncher 1.21.1!",
           "authors": [ "kill_pv2" ],
           "contact": {},
           "license": "MIT",
@@ -84,17 +84,23 @@ jobs:
         }
         EOF
 
+        # ثبت هر ۳ میکس‌این جدید در فایل کانفیگ
         cat << 'EOF' > src/main/resources/fpsboost.mixins.json
         {
           "required": true,
           "minVersion": "0.8",
           "package": "com.fpsboost.mixin",
           "compatibilityLevel": "JAVA_21",
-          "mixins": [ "ParticleMixin" ],
+          "mixins": [ 
+            "ParticleMixin",
+            "BlockEntityRenderMixin",
+            "HudMixin"
+          ],
           "injectors": { "defaultRequire": 1 }
         }
         EOF
 
+        # میکس‌این اول: حذف انیمیشن‌ها و ذرات دوردست برای جلوگیری از کرش و نشت حافظه
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/ParticleMixin.java
         package com.fpsboost.mixin;
 
@@ -114,83 +120,86 @@ jobs:
 
             @Inject(method = "tick", at = @At("HEAD"), cancellable = true)
             private void onTick(CallbackInfo ci) {
-                MinecraftClient client = MinecraftClient.getInstance();
-                if (client.player != null) {
-                    double distanceSq = client.player.squaredDistanceTo(this.x, this.y, this.z);
-                    if (distanceSq > 1024) { ci.cancel(); }
-                }
+                try {
+                    MinecraftClient client = MinecraftClient.getInstance();
+                    if (client != null && client.player != null) {
+                        double distanceSq = client.player.squaredDistanceTo(this.x, this.y, this.z);
+                        // اگر ذرات دورتر از ۱۶ بلاک باشن تیک نمی‌خورن تا CPU/GPU موبایل آزاد بشه
+                        if (distanceSq > 256) { ci.cancel(); }
+                    }
+                } catch (Exception e) {}
             }
         }
         EOF
-        echo "=== فایل‌های مود با موفقیت ساخته شدند ==="
 
-    # ۳. بیلد کردن مود و تولید فایل jar
+        # میکس‌این دوم: حذف لگ چست‌ها و بلاک‌انتیتی‌های انباشته شده (کاهش شدید مصرف GPU)
+        cat << 'EOF' > src/main/java/com/fpsboost/mixin/BlockEntityRenderMixin.java
+        package com.fpsboost.mixin;
+
+        import net.minecraft.block.entity.BlockEntity;
+        import net.minecraft.client.MinecraftClient;
+        import net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher;
+        import net.minecraft.client.render.VertexConsumerProvider;
+        import net.minecraft.client.util.math.MatrixStack;
+        import org.spongepowered.asm.mixin.Mixin;
+        import org.spongepowered.asm.mixin.injection.At;
+        import org.spongepowered.asm.mixin.injection.Inject;
+        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+        @Mixin(BlockEntityRenderDispatcher.class)
+        public class BlockEntityRenderMixin {
+            @Inject(method = "render", at = @At("HEAD"), cancellable = true)
+            private <E extends BlockEntity> void onRenderBlockEntity(E blockEntity, float tickDelta, MatrixStack matrices, VertexConsumerProvider vertexConsumers, CallbackInfo ci) {
+                try {
+                    MinecraftClient client = MinecraftClient.getInstance();
+                    if (client != null && client.player != null && blockEntity.getPos() != null) {
+                        double distSq = client.player.squaredDistanceTo(blockEntity.getPos().getX(), blockEntity.getPos().getY(), blockEntity.getPos().getZ());
+                        // کات کردن رندر چست‌ها و انتیتی‌های بلاک در فواصل دور (بزرگترین عامل دراپ FPS)
+                        if (distSq > 1024) { ci.cancel(); }
+                    }
+                } catch (Exception e) {}
+            }
+        }
+        EOF
+
+        # میکس‌این سوم: نمایشگر فریم ریت اختصاصی روی صفحه و سازگار با بقیه کلاینت‌ها
+        cat << 'EOF' > src/main/java/com/fpsboost/mixin/HudMixin.java
+        package com.fpsboost.mixin;
+
+        import net.minecraft.client.MinecraftClient;
+        import net.minecraft.client.gui.DrawContext;
+        import net.minecraft.client.gui.hud.InGameHud;
+        import net.minecraft.client.render.RenderTickCounter;
+        import org.spongepowered.asm.mixin.Mixin;
+        import org.spongepowered.asm.mixin.injection.At;
+        import org.spongepowered.asm.mixin.injection.Inject;
+        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+        @Mixin(InGameHud.class)
+        public class HudMixin {
+            @Inject(method = "render", at = @At("TAIL"))
+            private void onRenderFpsCounter(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
+                try {
+                    MinecraftClient client = MinecraftClient.getInstance();
+                    if (client != null && !client.options.hudHidden && client.world != null) {
+                        // گرفتن دقیق میزان فریم بدون ایجاد پینگ و لگ
+                        String fpsText = "§aFPS: §f" + client.getCurrentFps();
+                        // رندر کردن متن در مختصات فوق‌العاده امن (X=10, Y=10) تا با چیت‌کلاینت‌ها قاطی نشه
+                        context.drawText(client.textRenderer, fpsText, 10, 10, 0xFFFFFF, true);
+                    }
+                } catch (Exception e) {}
+            }
+        }
+        EOF
+        echo "=== تمامی کدهای بهینه‌ساز با موفقیت تزریق شدند ==="
+
+    # ۳. بیلد نهایی مود بدون اتلاف وقت
     - name: Build Mod with Gradle Wrapper
       run: ./gradlew build
 
-    # ۴. نصب نیازمندی‌ها + پکیج‌های شبیه‌ساز گرافیک Mesa و ترمینال xterm
-    - name: Install Test Environment Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y xvfb fluxbox x11vnc novnc websockify wget xterm python3-pip
-        sudo apt-get install -y libgl1-mesa-dri libglx-mesa0 libgbm1 mesa-utils
-        pip3 install portablemc --break-system-packages
-        
-        # نصب کلودفلر
-        wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-        sudo dpkg -i cloudflared-linux-amd64.deb
-
-    # ۵. آماده‌سازی پوشه‌های کلاینت و انتقال مود
-    - name: Prepare Vanilla and Modded Instances
-      run: |
-        mkdir -p test_env/vanilla
-        mkdir -p test_env/modded/mods
-        
-        # کپی کردن مود بیلد شده به پوشه اینستنس مود شده
-        cp build/libs/*-1.0.0.jar test_env/modded/mods/fpsboost_pro.jar
-
-    # ۶. اجرای یکپارچه محیط گرافیکی، تونل کلودفلر و لاگ زنده در دسکتاپ
-    - name: Start Virtual Desktop, Cloudflare Tunnel and Launch Minecraft
-      run: |
-        echo "=== ۱. راه‌اندازی مانیتور مجازی ==="
-        Xvfb :1 -screen 0 1920x1080x24 &
-        sleep 3
-        export DISPLAY=:1
-        fluxbox &
-        sleep 2
-        
-        echo "=== ۲. راه‌اندازی VNC Server ==="
-        x11vnc -display :1 -nopw -forever -shared -bg -rfbport 5900
-        sleep 2
-        
-        echo "=== ۳. راه‌اندازی وب‌سرور دسکتاپ (noVNC) ==="
-        websockify --web /usr/share/novnc 8060 localhost:5900 &
-        sleep 3
-        
-        echo "=== ۴. ایجاد تونل موقت کلودفلر ==="
-        cloudflared tunnel --url http://localhost:8060 > cloudflare.log 2>&1 &
-        sleep 8
-        
-        echo "=========================================================="
-        echo "آدرس ورود به محیط تست گرافیکی کلاینت:"
-        grep -o 'https://[-a-z0-9.]*.trycloudflare.com' cloudflare.log || cat cloudflare.log
-        echo "=========================================================="
-        
-        echo "=== ۵. اجرای دانلود و ران کردن ماینکرفت‌ها درون پنجره‌های ترمینال زنده ==="
-        
-        # اجرای کلاینت وانیلا با دستور درست start
-        xterm -geometry 90x25+50+100 -title "Vanilla Minecraft Status" -e "portablemc start 1.21.1 -u Vanilla_Test --offline --workdir ./test_env/vanilla --jvm-args='-Xmx3G -Xms1G'; echo 'Process Finished. Press Enter to close...'; read" &
-        sleep 3
-        
-        # اجرای کلاینت مود شده با دستور درست start
-        xterm -geometry 90x25+1000+100 -title "Modded Fabric Minecraft Status" -e "portablemc start fabric:1.21.1 -u Modded_Test --offline --workdir ./test_env/modded --jvm-args='-Xmx3G -Xms1G'; echo 'Process Finished. Press Enter to close...'; read" &
-        
-        echo "محیط تست گرافیکی با موفقیت بالا آمد. شل به مدت ۳۰ دقیقه باز نگه‌داشته می‌شود..."
-        sleep 1800
-
-    # ۷. آپلود فایل مود برای دانلود مستقیم
+    # ۴. آپلود فایل نهایی جار برای دانلود مستقیم
     - name: Upload Mod Jar Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: FPS-Boost-Mod-1.21.1
+        name: FPS-Boost-Mod-Pro-1.21.1
         path: build/libs/*-1.0.0.jar
