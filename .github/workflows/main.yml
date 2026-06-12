@@ -1,12 +1,12 @@
-name: Auto Build FPS Boost Mod
+name: Build and Auto-Test FPS Boost Mod
 
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # فعال کردن دکمه اجرای دستی توی پنل گیت‌هاب
+  workflow_dispatch:
 
 jobs:
-  build-mod:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,23 +19,20 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
 
-    # ساخت یک فایل خالی موقت تا گرادل ۹ ارور ندهد
+    # ۱. رفع مشکل بهانه‌گیری گرادل ۹
     - name: Create Temporary Settings File
       run: touch settings.gradle
 
-    # حالا رپر گرادل ۸.۹ با موفقیت ساخته می‌شود
     - name: Setup Gradle Wrapper (v8.9)
       run: gradle wrapper --gradle-version 8.9
 
+    # ۲. ساخت فایل‌های سورس کد مود فبریک
     - name: Generate Project Structure and Files
       run: |
         echo "=== در حال ساخت پوشه‌ها و تزریق کدها ==="
-        
-        # ۱. ساخت پوشه‌های ساختاری پروژه فبریک
         mkdir -p src/main/java/com/fpsboost/mixin
         mkdir -p src/main/resources
 
-        # ۲. بازنویسی و ساخت فایل اصلی settings.gradle
         cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
@@ -46,45 +43,30 @@ jobs:
         rootProject.name = "FPSBoostPro"
         EOF
 
-        # ۳. ساخت فایل gradle.properties
         cat << 'EOF' > gradle.properties
         org.gradle.jvmargs=-Xmx2G
         EOF
 
-        # ۴. ساخت فایل build.gradle
         cat << 'EOF' > build.gradle
         plugins {
             id 'fabric-loom' version '1.7-SNAPSHOT'
         }
-
         version = '1.0.0'
         group = 'com.fpsboost'
-
-        repositories {
-            mavenCentral()
-        }
-
+        repositories { mavenCentral() }
         dependencies {
             minecraft "com.mojang:minecraft:1.21.1"
             mappings "net.fabricmc:yarn:1.21.1+build.2:v2"
             modImplementation "net.fabricmc:fabric-loader:0.16.0"
         }
-
         processResources {
             inputs.property "version", project.version
             filteringCharset "UTF-8"
-
-            filesMatching("fabric.mod.json") {
-                expand "version": project.version
-            }
+            filesMatching("fabric.mod.json") { expand "version": project.version }
         }
-
-        tasks.withType(JavaCompile).configureEach {
-            it.options.release = 21
-        }
+        tasks.withType(JavaCompile).configureEach { it.options.release = 21 }
         EOF
 
-        # ۵. ساخت فایل fabric.mod.json
         cat << 'EOF' > src/main/resources/fabric.mod.json
         {
           "schemaVersion": 1,
@@ -96,36 +78,23 @@ jobs:
           "contact": {},
           "license": "MIT",
           "environment": "client",
-          "entrypoints": {
-            "main": []
-          },
-          "mixins": [
-            "fpsboost.mixins.json"
-          ],
-          "depends": {
-            "fabricloader": ">=0.16.0",
-            "minecraft": "1.21.1"
-          }
+          "entrypoints": { "main": [] },
+          "mixins": [ "fpsboost.mixins.json" ],
+          "depends": { "fabricloader": ">=0.16.0", "minecraft": "1.21.1" }
         }
         EOF
 
-        # ۶. ساخت فایل تنظیمات میکسین fpsboost.mixins.json
         cat << 'EOF' > src/main/resources/fpsboost.mixins.json
         {
           "required": true,
           "minVersion": "0.8",
           "package": "com.fpsboost.mixin",
           "compatibilityLevel": "JAVA_21",
-          "mixins": [
-            "ParticleMixin"
-          ],
-          "injectors": {
-            "defaultRequire": 1
-          }
+          "mixins": [ "ParticleMixin" ],
+          "injectors": { "defaultRequire": 1 }
         }
         EOF
 
-        # ۷. تزریق کد جاوای اصلی (میکسین بهینه‌سازی ذرات)
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/ParticleMixin.java
         package com.fpsboost.mixin;
 
@@ -139,7 +108,6 @@ jobs:
 
         @Mixin(Particle.class)
         public abstract class ParticleMixin {
-            
             @Shadow protected double x;
             @Shadow protected double y;
             @Shadow protected double z;
@@ -147,26 +115,80 @@ jobs:
             @Inject(method = "tick", at = @At("HEAD"), cancellable = true)
             private void onTick(CallbackInfo ci) {
                 MinecraftClient client = MinecraftClient.getInstance();
-                
                 if (client.player != null) {
                     double distanceSq = client.player.squaredDistanceTo(this.x, this.y, this.z);
-                    
-                    // 1024 یعنی مجذور فاصله 32 بلاک (32 * 32)
-                    // اگر ذره دورتر از 32 بلاک بود، پردازش تیک رو لغو کن تا CPU آزاد بشه
-                    if (distanceSq > 1024) {
-                        ci.cancel();
-                    }
+                    if (distanceSq > 1024) { ci.cancel(); }
                 }
             }
         }
         EOF
-        
-        echo "=== ساخت فایل‌ها با موفقیت انجام شد ==="
+        echo "=== فایل‌های مود با موفقیت ساخته شدند ==="
 
-    # اجرای کامپایل با رپر اختصاصی نسخه 8.9
+    # ۳. بیلد کردن مود و تولید فایل jar
     - name: Build Mod with Gradle Wrapper
       run: ./gradlew build
 
+    # ۴. نصب نیازمندی‌های محیط تست (دسکتاپ مجازی، نو‌وی‌ان‌سی و کلودفلر)
+    - name: Install Test Environment Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y xvfb fluxbox x11vnc novnc websockify mesa-utils python3-pip wget
+        pip3 install portablemc --break-system-packages
+        
+        # نصب کلودفلر
+        wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+        sudo dpkg -i cloudflared-linux-amd64.deb
+
+    # ۵. آماده‌سازی پوشه‌های کلاینت و انتقال مود
+    - name: Prepare Vanilla and Modded Instances
+      run: |
+        mkdir -p test_env/vanilla
+        mkdir -p test_env/modded/mods
+        
+        # کپی کردن مود بیلد شده به پوشه اینستنس مود شده
+        cp build/libs/*-1.0.0.jar test_env/modded/mods/fpsboost_pro.jar
+
+    # ۶. راه‌اندازی دسکتاپ مجازی و تونل کلودفلر
+    - name: Start Virtual Display and Cloudflare Tunnel
+      run: |
+        # ساخت مانیتور مجازی با رزولوشن مناسب دو پنجره کنار هم
+        Xvfb :1 -screen 0 1920x1080x24 &
+        sleep 2
+        export DISPLAY=:1
+        fluxbox &
+        
+        # استارت VNC و نو‌وی‌ان‌سی روی پورت 8060
+        x11vnc -display :1 -nopw -forever -shared -bg -rfbport 5900
+        /usr/share/novnc/utils/launch.sh --vnc localhost:5900 --listen 8060 &
+        sleep 3
+        
+        # استارت تونل موقت کلودفلر
+        cloudflared tunnel --url http://localhost:8060 > cloudflare.log 2>&1 &
+        sleep 6
+        
+        echo "=========================================================="
+        echo "آدرس ورود به محیط تست گرافیکی کلاینت:"
+        grep -o 'https://[-a-z0-9.]*.trycloudflare.com' cloudflare.log || cat cloudflare.log
+        echo "=========================================================="
+
+    # ۷. اجرای همزمان هر دو نسخه با ۳ گیگابایت رم اختصاصی
+    - name: Launch Minecraft (Vanilla vs Modded)
+      run: |
+        export DISPLAY=:1
+        
+        echo "=== در حال اجرای نسخه وانیلا (سمت چپ) ==="
+        portablemc run 1.21.1 -u Vanilla_Test --offline --workdir ./test_env/vanilla --jvm-args="-Xmx3G -Xms1G" &
+        
+        sleep 5
+        
+        echo "=== در حال اجرای نسخه مود شده (سمت راست) ==="
+        portablemc run fabric:1.21.1 -u Modded_Test --offline --workdir ./test_env/modded --jvm-args="-Xmx3G -Xms1G" &
+        
+        # زنده نگه داشتن سرور به مدت ۳۰ دقیقه برای تست شما
+        echo "محیط تست به مدت ۳۰ دقیقه فعال است..."
+        sleep 1800
+
+    # ۸. آپلود فایل مود برای دانلود مستقیم
     - name: Upload Mod Jar Artifact
       uses: actions/upload-artifact@v4
       with:
