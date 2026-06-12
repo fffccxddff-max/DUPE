@@ -296,12 +296,12 @@ jobs:
         import org.spongepowered.asm.mixin.Mixin;
         import org.spongepowered.asm.mixin.injection.At;
         import org.spongepowered.asm.mixin.injection.Inject;
-        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+        import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
         @Mixin(TextureManager.class)
         public class TextureManagerMixin {
             @Inject(method = "reload", at = @At("HEAD"))
-            private void onReloadTexturesHead(CallbackInfo ci) {
+            private void onReloadTexturesHead(CallbackInfoReturnable<?> cir) {
                 // پاکسازی سریع زباله‌های حافظه کش اندروید قبل ارور حافظه گرافیک
                 System.gc();
             }
