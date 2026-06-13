@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -18,79 +19,62 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v4
+    # ۱. رفع مشکل بهانه‌گیری گرادل
+    - name: Create Temporary Settings File
+      run: touch settings.gradle
 
-    - name: Generate Project Files
+    - name: Setup Gradle Wrapper (v8.9)
+      run: gradle wrapper --gradle-version 8.9
+
+    # ۲. ساخت ساختار پیشرفته مود فبریک نسخه 1.21.1 مخصوص جاوا 17
+    - name: Generate Advanced Mod Files
       run: |
+        echo "=== در حال تزریق کدهای پیشرفته بهینه‌سازی کلاینت ==="
         mkdir -p src/main/java/com/fpsboost/mixin
         mkdir -p src/main/resources
 
-        cat > settings.gradle << 'EOF'
+        cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
                 maven { url "https://maven.fabricmc.net/" }
-                gradlePluginPortal()
                 mavenCentral()
             }
         }
         rootProject.name = "FPSBoostPro"
         EOF
 
-        cat > gradle.properties << 'EOF'
-        org.gradle.jvmargs=-Xmx2G -XX:+UseG1GC
-        org.gradle.parallel=true
-        org.gradle.caching=true
-        org.gradle.daemon=false
+        cat << 'EOF' > gradle.properties
+        org.gradle.jvmargs=-Xmx2G
         EOF
 
-        cat > build.gradle << 'EOF'
+        cat << 'EOF' > build.gradle
         plugins {
-            id 'fabric-loom' version '1.7.4'
-            id 'java'
+            id 'fabric-loom' version '1.7-SNAPSHOT'
         }
-
         version = '1.0.0'
         group = 'com.fpsboost'
-        base { archivesName = 'fpsboost-pro' }
-
-        repositories {
-            mavenCentral()
-            maven { url "https://maven.fabricmc.net/" }
-        }
-
+        repositories { mavenCentral() }
         dependencies {
             minecraft "com.mojang:minecraft:1.21.1"
-            mappings "net.fabricmc:yarn:1.21.1+build.3:v2"
+            mappings "net.fabricmc:yarn:1.21.1+build.2:v2"
             modImplementation "net.fabricmc:fabric-loader:0.16.0"
         }
-
         processResources {
             inputs.property "version", project.version
             filteringCharset "UTF-8"
-            filesMatching("fabric.mod.json") {
-                expand "version": project.version
-            }
+            filesMatching("fabric.mod.json") { expand "version": project.version }
         }
-
-        java {
-            sourceCompatibility = JavaVersion.VERSION_17
-            targetCompatibility = JavaVersion.VERSION_17
-        }
-
-        tasks.withType(JavaCompile).configureEach {
-            it.options.release = 17
-            it.options.encoding = "UTF-8"
-        }
+        // تنظیم خروجی کامپایل دقیقاً روی جاوا 17 برای سازگاری کامل با پوجاو شما
+        tasks.withType(JavaCompile).configureEach { it.options.release = 17 }
         EOF
 
-        cat > src/main/resources/fabric.mod.json << 'EOF'
+        cat << 'EOF' > src/main/resources/fabric.mod.json
         {
           "schemaVersion": 1,
           "id": "fpsboost_pro",
           "version": "${version}",
           "name": "FPS Boost Pro",
-          "description": "Lightweight Performance Helper for PojavLauncher 1.21.1",
+          "description": "Ultra Performance Enhancer for PojavLauncher 1.21.1!",
           "authors": [ "kill_pv2" ],
           "contact": {},
           "license": "MIT",
@@ -98,38 +82,41 @@ jobs:
           "icon": "icon.png",
           "entrypoints": { "main": [] },
           "mixins": [ "fpsboost.mixins.json" ],
-          "depends": {
-            "fabricloader": ">=0.16.0",
-            "minecraft": "1.21.1"
-          }
+          "depends": { "fabricloader": ">=0.16.0", "minecraft": "1.21.1" }
         }
         EOF
 
-        if [ -f "icon.png" ]; then
+        # مدیریت آیکون اختصاصی شما
+        if [ -f "file_00000000d974722f95ee81adcf415ec7.png" ]; then
+          cp file_00000000d974722f95ee81adcf415ec7.png src/main/resources/icon.png
+        elif [ -f "icon.png" ]; then
           cp icon.png src/main/resources/icon.png
+        elif [ -f "211097.png" ]; then
+          cp 211097.png src/main/resources/icon.png
         else
           touch src/main/resources/icon.png
         fi
 
-        cat > src/main/resources/fpsboost.mixins.json << 'EOF'
+        # ثبت میکس‌این‌ها با لول سازگاری جاوا 17
+        cat << 'EOF' > src/main/resources/fpsboost.mixins.json
         {
           "required": true,
           "minVersion": "0.8",
           "package": "com.fpsboost.mixin",
           "compatibilityLevel": "JAVA_17",
-          "client": [
+          "mixins": [ 
             "ParticleMixin",
+            "BlockEntityRenderMixin",
             "HudMixin",
-            "VideoOptionsMixin"
+            "VideoOptionsMixin",
+            "TextureManagerMixin"
           ],
-          "injectors": { "defaultRequire": 0 }
+          "injectors": { "defaultRequire": 1 }
         }
         EOF
 
-    - name: Generate Mixin Java Files
-      run: |
-        # ── ParticleMixin: cull particles far away (safe, low conflict) ──
-        cat > src/main/java/com/fpsboost/mixin/ParticleMixin.java << 'EOF'
+        # میکس‌این ۱: کنترل و حذف ذرات دوردست برای فریم ریت بالاتر
+        cat << 'EOF' > src/main/java/com/fpsboost/mixin/ParticleMixin.java
         package com.fpsboost.mixin;
 
         import net.minecraft.client.MinecraftClient;
@@ -146,23 +133,66 @@ jobs:
             @Shadow protected double y;
             @Shadow protected double z;
 
-            @Inject(method = "tick", at = @At("HEAD"), cancellable = true, require = 0)
-            private void fpsboost$onTick(CallbackInfo ci) {
+            @Inject(method = "tick", at = @At("HEAD"), cancellable = true)
+            private void onTick(CallbackInfo ci) {
                 try {
                     MinecraftClient client = MinecraftClient.getInstance();
                     if (client != null && client.player != null) {
-                        double distSq = client.player.squaredDistanceTo(this.x, this.y, this.z);
-                        if (distSq > 256.0) { // 16 blocks
-                            ci.cancel();
-                        }
+                        double distanceSq = client.player.squaredDistanceTo(this.x, this.y, this.z);
+                        if (distanceSq > 144) { ci.cancel(); }
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) {}
             }
         }
         EOF
 
-        # ── HudMixin: FPS counter (safe, TAIL inject) ──
-        cat > src/main/java/com/fpsboost/mixin/HudMixin.java << 'EOF'
+        # میکس‌این ۲: رندر نکردن چست‌ها و اندرچست‌ها وقتی پشت سر پلیر هستند (Frustum Culling اختصاصی چست)
+        cat << 'EOF' > src/main/java/com/fpsboost/mixin/BlockEntityRenderMixin.java
+        package com.fpsboost.mixin;
+
+        import net.minecraft.block.entity.BlockEntity;
+        import net.minecraft.block.entity.ChestBlockEntity;
+        import net.minecraft.block.entity.EnderChestBlockEntity;
+        import net.minecraft.client.MinecraftClient;
+        import net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher;
+        import net.minecraft.client.render.VertexConsumerProvider;
+        import net.minecraft.client.util.math.MatrixStack;
+        import org.spongepowered.asm.mixin.Mixin;
+        import org.spongepowered.asm.mixin.injection.At;
+        import org.spongepowered.asm.mixin.injection.Inject;
+        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+        @Mixin(BlockEntityRenderDispatcher.class)
+        public class BlockEntityRenderMixin {
+            @Inject(method = "render", at = @At("HEAD"), cancellable = true)
+            private <E extends BlockEntity> void onRenderBlockEntity(E blockEntity, float tickDelta, MatrixStack matrices, VertexConsumerProvider vertexConsumers, CallbackInfo ci) {
+                try {
+                    MinecraftClient client = MinecraftClient.getInstance();
+                    if (client != null && client.player != null && blockEntity.getPos() != null) {
+                        
+                        // فقط روی چست‌ها و اندرچست‌ها اعمال بشه تا بقیه بازی خراب نشه
+                        if (blockEntity instanceof ChestBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
+                            double bx = blockEntity.getPos().getX() + 0.5;
+                            double by = blockEntity.getPos().getY() + 0.5;
+                            double bz = blockEntity.getPos().getZ() + 0.5;
+
+                            // محاسبه ریاضی ضرب داخلی بردار نگاه پلیر با موقعیت چست
+                            net.minecraft.util.math.Vec3d lookVec = client.player.getRotationVec(1.0F);
+                            net.minecraft.util.math.Vec3d toBlock = new net.minecraft.util.math.Vec3d(bx - client.player.getX(), by - client.player.getEyeY(), bz - client.player.getZ()).normalize();
+                            
+                            // اگر حاصل منفی یا صفر باشه یعنی چست کاملاً پشت سر پلیر قرار داره و نباید رندر بشه
+                            if (lookVec.dotProduct(toBlock) <= 0.0) {
+                                ci.cancel();
+                            }
+                        }
+                    }
+                } catch (Exception e) {}
+            }
+        }
+        EOF
+
+        # میکس‌این ۳: نمایشگر بهینه و ثابت FPS روی دایره هاد
+        cat << 'EOF' > src/main/java/com/fpsboost/mixin/HudMixin.java
         package com.fpsboost.mixin;
 
         import net.minecraft.client.MinecraftClient;
@@ -176,31 +206,27 @@ jobs:
 
         @Mixin(InGameHud.class)
         public class HudMixin {
-
-            @Inject(method = "render", at = @At("TAIL"), require = 0)
-            private void fpsboost$onRender(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
+            @Inject(method = "render", at = @At("TAIL"))
+            private void onRenderFpsCounter(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
                 try {
                     MinecraftClient client = MinecraftClient.getInstance();
-                    if (client == null || client.options.hudHidden || client.world == null) return;
-
-                    int fps = client.getCurrentFps();
-                    String color = fps >= 30 ? "§a" : fps >= 15 ? "§e" : "§c";
-                    String text = color + "FPS: §f" + fps;
-                    context.drawText(client.textRenderer, text, 4, 4, 0xFFFFFF, true);
-                } catch (Exception ignored) {}
+                    if (client != null && !client.options.hudHidden && client.world != null) {
+                        String fpsText = "§aFPS: §f" + client.getCurrentFps();
+                        context.drawText(client.textRenderer, fpsText, 10, 10, 0xFFFFFF, true);
+                    }
+                } catch (Exception e) {}
             }
         }
         EOF
 
-        # ── VideoOptionsMixin: Auto Optimize button ──
-        cat > src/main/java/com/fpsboost/mixin/VideoOptionsMixin.java << 'EOF'
+        # میکس‌این ۴: دکمه تنظیمات خودکار هوشمند وسط بالای صفحه به همراه رفلکشن بدون خطای کامپایل
+        cat << 'EOF' > src/main/java/com/fpsboost/mixin/VideoOptionsMixin.java
         package com.fpsboost.mixin;
 
         import net.minecraft.client.MinecraftClient;
         import net.minecraft.client.gui.screen.option.GameOptionsScreen;
         import net.minecraft.client.gui.screen.option.VideoOptionsScreen;
         import net.minecraft.client.gui.widget.ButtonWidget;
-        import net.minecraft.client.option.GraphicsMode;
         import net.minecraft.text.Text;
         import org.spongepowered.asm.mixin.Mixin;
         import org.spongepowered.asm.mixin.injection.At;
@@ -208,53 +234,103 @@ jobs:
         import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
         @Mixin(GameOptionsScreen.class)
-        public abstract class VideoOptionsMixin extends net.minecraft.client.gui.screen.Screen {
+        public class VideoOptionsMixin extends net.minecraft.client.gui.screen.Screen {
+            protected VideoOptionsMixin(Text title) { super(title); }
 
-            protected VideoOptionsMixin(Text title) {
-                super(title);
-            }
-
-            @Inject(method = "init", at = @At("TAIL"), require = 0)
-            private void fpsboost$onInit(CallbackInfo ci) {
+            @Inject(method = "init", at = @At("TAIL"))
+            private void onInit(CallbackInfo ci) {
                 try {
-                    if (!((Object) this instanceof VideoOptionsScreen)) return;
-
-                    this.addDrawableChild(
-                        ButtonWidget.builder(Text.literal("§b⚡ Auto Optimize"), button -> {
+                    if ((Object)this instanceof VideoOptionsScreen) {
+                        // قرار دادن دکمه در وسط بالای صفحه تنظیمات ویدیو
+                        this.addDrawableChild(ButtonWidget.builder(Text.literal("§bKILL_PV2 Auto Optimize"), button -> {
                             MinecraftClient client = MinecraftClient.getInstance();
-                            if (client == null || client.options == null) return;
+                            if (client != null && client.options != null) {
+                                // تنظیم چانک‌ها به بهینه‌ترین حالت موبایل
+                                try { client.options.getViewDistance().setValue(2); } catch(Exception e){}
+                                try { client.options.getSimulationDistance().setValue(4); } catch(Exception e){}
+                                
+                                // استفاده از رفلکشن برای ست کردن حالت گرافیک روی FAST بدون ارور مپینگ مبریک
+                                try {
+                                    Object graphicsOpt = client.options.getGraphicsMode();
+                                    Object[] constants = graphicsOpt.getClass().getMethod("getValue").invoke(graphicsOpt).getClass().getEnumConstants();
+                                    Object fastTarget = constants[0];
+                                    for (Object c : constants) {
+                                        if (c.toString().equalsIgnoreCase("FAST")) {
+                                            fastTarget = c;
+                                            break;
+                                        }
+                                    }
+                                    for (java.lang.reflect.Method m : graphicsOpt.getClass().getMethods()) {
+                                        if (m.getName().equals("setValue") && m.getParameterCount() == 1) {
+                                            m.setAccessible(true);
+                                            m.invoke(graphicsOpt, fastTarget);
+                                            break;
+                                        }
+                                    }
+                                } catch (Exception e) {}
 
-                            client.options.getViewDistance().setValue(4);
-                            client.options.getSimulationDistance().setValue(5);
-                            client.options.getGraphicsMode().setValue(GraphicsMode.FAST);
-                            client.options.getAo().setValue(false);
-                            client.options.getCloudRenderMode().setValue(
-                                net.minecraft.client.option.CloudRenderMode.OFF
-                            );
-                            client.options.getEntityShadows().setValue(false);
-
-                            if (client.worldRenderer != null) {
-                                client.worldRenderer.reload();
+                                // استفاده از رفلکشن برای ست کردن Ambient Occlusion روی OFF بدون ارور مپینگ فبریک
+                                try {
+                                    Object aoOpt = client.options.getAo();
+                                    Object[] constants = aoOpt.getClass().getMethod("getValue").invoke(aoOpt).getClass().getEnumConstants();
+                                    Object offTarget = constants[0];
+                                    for (Object c : constants) {
+                                        if (c.toString().equalsIgnoreCase("OFF") || c.toString().equalsIgnoreCase("FALSE")) {
+                                            offTarget = c;
+                                            break;
+                                        }
+                                    }
+                                    for (java.lang.reflect.Method m : aoOpt.getClass().getMethods()) {
+                                        if (m.getName().equals("setValue") && m.getParameterCount() == 1) {
+                                            m.setAccessible(true);
+                                            m.invoke(aoOpt, offTarget);
+                                            break;
+                                        }
+                                    }
+                                } catch (Exception e) {}
+                                
+                                // فورس ریلود کردن موتور گرافیکی بازی به صورت آنی برای اعمال تغییرات و جهش FPS
+                                if (client.worldRenderer != null) {
+                                    client.worldRenderer.reload();
+                                }
+                                
+                                client.options.write();
+                                this.close();
                             }
-                            client.options.write();
-                            this.close();
-                        })
-                        .dimensions(this.width / 2 - 80, 6, 160, 20)
-                        .build()
-                    );
-                } catch (Exception ignored) {}
+                        }).dimensions(this.width / 2 - 80, 6, 160, 20).build());
+                    }
+                } catch (Exception e) {}
             }
         }
         EOF
 
-        echo "=== All mod files generated ==="
+        # میکس‌این ۵: پاکسازی زباله‌های مموری برای مهار لگ ترنزیشن‌ها و منوها
+        cat << 'EOF' > src/main/java/com/fpsboost/mixin/TextureManagerMixin.java
+        package com.fpsboost.mixin;
 
-    - name: Build Mod
-      run: ./gradlew build --no-daemon --stacktrace
+        import net.minecraft.client.texture.TextureManager;
+        import org.spongepowered.asm.mixin.Mixin;
+        import org.spongepowered.asm.mixin.injection.At;
+        import org.spongepowered.asm.mixin.injection.Inject;
+        import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-    - name: Upload Mod Jar
+        @Mixin(TextureManager.class)
+        public class TextureManagerMixin {
+            @Inject(method = "reload", at = @At("HEAD"))
+            private void onReloadTexturesHead(CallbackInfoReturnable<?> cir) {
+                System.gc();
+            }
+        }
+        EOF
+        echo "=== تمامی کدهای بهینه‌ساز با موفقیت تزریق شدند ==="
+
+    # ۳. بیلد نهایی مود بدون اتلاف وقت
+    - name: Build Mod with Gradle Wrapper
+      run: ./gradlew build
+
+    # ۴. آپلود فایل نهایی جار برای دانلود مستقیم
+    - name: Upload Mod Jar Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: FPS-Boost-Pro-Java17-MC1.21.1
-        path: build/libs/fpsboost-pro-1.0.0.jar
-        if-no-files-found: error
+        name: FPS-Boost-Mod-Extreme-Java17-1.21.1
+        path: build/libs/*-1.0.0.jar
