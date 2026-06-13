@@ -65,7 +65,6 @@ jobs:
             filteringCharset "UTF-8"
             filesMatching("fabric.mod.json") { expand "version": project.version }
         }
-        // تنظیم خروجی کامپایل دقیقاً روی جاوا 17 برای سازگاری کامل با پوجاو شما
         tasks.withType(JavaCompile).configureEach { it.options.release = 17 }
         EOF
 
@@ -133,7 +132,6 @@ jobs:
         public class ParticleManagerMixin {
             @Inject(method = "addParticle(Lnet/minecraft/client/particle/Particle;)V", at = @At("HEAD"), cancellable = true)
             private void onAddParticle(Particle particle, CallbackInfo ci) {
-                // حذف کامل تمامی پارتیک‌های سنگین مثل توتم پاپ و بلاک بریک برای جهش FPS
                 ci.cancel();
             }
         }
@@ -180,7 +178,7 @@ jobs:
         }
         EOF
 
-        # میکس‌این ۳: رندر نکردن آرمور استندها (ArmorStand) وقتی پشت سر پلیر هستند
+        # میکس‌این ۳: رندر نکردن آرمور استندها وقتی پشت سر پلیر هستند
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/EntityRenderMixin.java
         package com.fpsboost.mixin;
 
@@ -206,7 +204,6 @@ jobs:
                             net.minecraft.util.math.Vec3d lookVec = client.player.getRotationVec(1.0F);
                             net.minecraft.util.math.Vec3d toEntity = new net.minecraft.util.math.Vec3d(entity.getX() - client.player.getX(), entity.getY() - client.player.getY(), entity.getZ() - client.player.getZ()).normalize();
                             
-                            // اگر آرمور استند پشت سر پلیر باشه، رندرش لغو میشه
                             if (lookVec.dotProduct(toEntity) <= 0.0) {
                                 ci.cancel();
                             }
@@ -217,7 +214,7 @@ jobs:
         }
         EOF
 
-        # میکس‌این ۴: نمایشگر بهینه و ثابت FPS روی دایره هاد
+        # میکس‌این ۴: نمایشگر ثابت FPS به همراه اعلان وضعیت تست هوشمند AI
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/HudMixin.java
         package com.fpsboost.mixin;
 
@@ -225,6 +222,7 @@ jobs:
         import net.minecraft.client.gui.DrawContext;
         import net.minecraft.client.gui.hud.InGameHud;
         import net.minecraft.client.render.RenderTickCounter;
+        import com.fpsboost.ui.BenchmarkEngine;
         import org.spongepowered.asm.mixin.Mixin;
         import org.spongepowered.asm.mixin.injection.At;
         import org.spongepowered.asm.mixin.injection.Inject;
@@ -237,15 +235,23 @@ jobs:
                 try {
                     MinecraftClient client = MinecraftClient.getInstance();
                     if (client != null && !client.options.hudHidden && client.world != null) {
+                        // تیک زدن موتور هوشمند فریم ریت
+                        BenchmarkEngine.tick(client);
+
                         String fpsText = "§aFPS: §f" + client.getCurrentFps();
                         context.drawText(client.textRenderer, fpsText, 10, 10, 0xFFFFFF, true);
+
+                        // اگر حالت تست هوشمند فعال بود متن پیشرفت رو نشون بده
+                        if (BenchmarkEngine.isActive()) {
+                            context.drawText(client.textRenderer, BenchmarkEngine.getStatusText(), 10, 25, 0xFF5555, true);
+                        }
                     }
                 } catch (Exception e) {}
             }
         }
         EOF
 
-        # میکس‌این ۵: دکمه تنظیمات خودکار هوشمند وسط بالای صفحه به همراه رفلکشن بدون خطای کامپایل
+        # میکس‌این ۵: دکمه استارت بهینه‌سازی و بنچمارک هوشمند ۲۰ ثانیه‌ای
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/VideoOptionsMixin.java
         package com.fpsboost.mixin;
 
@@ -254,6 +260,7 @@ jobs:
         import net.minecraft.client.gui.screen.option.VideoOptionsScreen;
         import net.minecraft.client.gui.widget.ButtonWidget;
         import net.minecraft.text.Text;
+        import com.fpsboost.ui.BenchmarkEngine;
         import org.spongepowered.asm.mixin.Mixin;
         import org.spongepowered.asm.mixin.injection.At;
         import org.spongepowered.asm.mixin.injection.Inject;
@@ -267,52 +274,17 @@ jobs:
             private void onInit(CallbackInfo ci) {
                 try {
                     if ((Object)this instanceof VideoOptionsScreen) {
-                        this.addDrawableChild(ButtonWidget.builder(Text.literal("§bKILL_PV2 Auto Optimize"), button -> {
-                            MinecraftClient client = MinecraftClient.getInstance();
-                            if (client != null && client.options != null) {
-                                try { client.options.getViewDistance().setValue(2); } catch(Exception e){}
-                                try { client.options.getSimulationDistance().setValue(4); } catch(Exception e){}
-                                
-                                try {
-                                    Object graphicsOpt = client.options.getGraphicsMode();
-                                    Object[] constants = graphicsOpt.getClass().getMethod("getValue").invoke(graphicsOpt).getClass().getEnumConstants();
-                                    Object fastTarget = constants[0];
-                                    for (Object c : constants) {
-                                        if (c.toString().equalsIgnoreCase("FAST")) { fastTarget = c; break; }
-                                    }
-                                    for (java.lang.reflect.Method m : graphicsOpt.getClass().getMethods()) {
-                                        if (m.getName().equals("setValue") && m.getParameterCount() == 1) {
-                                            m.setAccessible(true); m.invoke(graphicsOpt, fastTarget); break;
-                                        }
-                                    }
-                                } catch (Exception e) {}
-
-                                try {
-                                    Object aoOpt = client.options.getAo();
-                                    Object[] constants = aoOpt.getClass().getMethod("getValue").invoke(aoOpt).getClass().getEnumConstants();
-                                    Object offTarget = constants[0];
-                                    for (Object c : constants) {
-                                        if (c.toString().equalsIgnoreCase("OFF") || c.toString().equalsIgnoreCase("FALSE")) { offTarget = c; break; }
-                                    }
-                                    for (java.lang.reflect.Method m : aoOpt.getClass().getMethods()) {
-                                        if (m.getName().equals("setValue") && m.getParameterCount() == 1) {
-                                            m.setAccessible(true); m.invoke(aoOpt, offTarget); break;
-                                        }
-                                    }
-                                } catch (Exception e) {}
-                                
-                                if (client.worldRenderer != null) { client.worldRenderer.reload(); }
-                                client.options.write();
-                                this.close();
-                            }
-                        }).dimensions(this.width / 2 - 80, 6, 160, 20).build());
+                        this.addDrawableChild(ButtonWidget.builder(Text.literal("§bKILL_PV2 Smart AI Optimize"), button -> {
+                            BenchmarkEngine.start();
+                            this.close();
+                        }).dimensions(this.width / 2 - 100, 6, 200, 20).build());
                     }
                 } catch (Exception e) {}
             }
         }
         EOF
 
-        # میکس‌این ۶: پاکسازی زباله‌های مموری برای مهار لگ ترنزیشن‌ها و منوها
+        # میکس‌این ۶: پاکسازی زباله‌های مموری رم
         cat << 'EOF' > src/main/java/com/fpsboost/mixin/TextureManagerMixin.java
         package com.fpsboost.mixin;
 
@@ -352,7 +324,6 @@ jobs:
             @Inject(method = "init", at = @At("TAIL"))
             private void onInit(CallbackInfo ci) {
                 try {
-                    // افزودن دکمه ورود کانفیگ به گوشه سمت چپ بالای منوی سرورها
                     this.addDrawableChild(ButtonWidget.builder(Text.literal("§bV2Ray Proxy"), button -> {
                         this.client.setScreen(new V2RayScreen(this));
                     }).dimensions(5, 5, 85, 20).build());
@@ -361,7 +332,120 @@ jobs:
         }
         EOF
 
-        # ساخت فایل رابط کاربری اختصاصی برای بخش تنظیمات کانفیگ V2Ray
+        # موتور هوشمند بنچمارک و تست فریم ریت ۲۰ ثانیه‌ای بر اساس سخت‌افزار پلیر
+        cat << 'EOF' > src/main/java/com/fpsboost/ui/BenchmarkEngine.java
+        package com.fpsboost.ui;
+
+        import net.minecraft.client.MinecraftClient;
+        import java.util.ArrayList;
+        import java.util.List;
+
+        public class BenchmarkEngine {
+            private static boolean active = false;
+            private static long stageStartTime = 0;
+            private static int currentStage = -1;
+            private static int totalFrames = 0;
+            private static long totalFpsSum = 0;
+
+            public static class Profile {
+                public String name;
+                public int renderDistance;
+                public int simulationDistance;
+                public boolean ao;
+                public double avgFps = 0;
+
+                public Profile(String name, int rd, int sd, boolean ao) {
+                    this.name = name; this.renderDistance = rd; this.simulationDistance = sd; this.ao = ao;
+                }
+            }
+
+            private static final List<Profile> profiles = new ArrayList<>();
+
+            public static void start() {
+                profiles.clear();
+                // وضعیت ۱: فوق‌العاده سبک مخصوص رم پایین و گرافیک روان
+                profiles.add(new Profile("Max-Performance (Ultra)", 2, 4, false));
+                // وضعیت ۲: بالانس شده و متعادل برای پردازنده گرافیکی
+                profiles.add(new Profile("Balanced Performance", 3, 5, false));
+                // وضعیت ۳: بهینه شده همراه با حفظ جزییات سایه‌ها
+                profiles.add(new Profile("Stable Smoothness", 2, 4, true));
+
+                active = true;
+                currentStage = 0;
+                stageStartTime = System.currentTimeMillis();
+                totalFrames = 0;
+                totalFpsSum = 0;
+                applyProfile(profiles.get(0));
+            }
+
+            public static boolean isActive() { return active; }
+
+            public static String getStatusText() {
+                if (!active || currentStage >= profiles.size()) return "";
+                long elapsed = System.currentTimeMillis() - stageStartTime;
+                long remaining = Math.max(0, (20000 - elapsed) / 1000);
+                return "§b[AI Testing] Mode: §e" + profiles.get(currentStage).name + " §f| Time Left: §c" + remaining + "s";
+            }
+
+            public static void tick(MinecraftClient client) {
+                if (!active) return;
+
+                totalFrames++;
+                totalFpsSum += client.getCurrentFps();
+
+                long elapsed = System.currentTimeMillis() - stageStartTime;
+                if (elapsed >= 20000) { // هر وضعیت دقیقاً ۲۰ ثانیه تست فریم ریت می‌گیرد
+                    Profile current = profiles.get(currentStage);
+                    current.avgFps = totalFrames > 0 ? (double) totalFpsSum / totalFrames : 0;
+
+                    currentStage++;
+                    if (currentStage >= profiles.size()) {
+                        active = false;
+                        Profile best = profiles.get(0);
+                        for (Profile p : profiles) {
+                            if (p.avgFps > best.avgFps) { best = p; }
+                        }
+                        applyProfile(best);
+                        try { client.options.write(); } catch(Exception e){}
+                    } else {
+                        stageStartTime = System.currentTimeMillis();
+                        totalFrames = 0;
+                        totalFpsSum = 0;
+                        applyProfile(profiles.get(currentStage));
+                    }
+                }
+            }
+
+            private static void applyProfile(Profile p) {
+                MinecraftClient client = MinecraftClient.getInstance();
+                if (client == null || client.options == null) return;
+                try { client.options.getViewDistance().setValue(p.renderDistance); } catch(Exception e){}
+                try { client.options.getSimulationDistance().setValue(p.simulationDistance); } catch(Exception e){}
+
+                try {
+                    Object aoOpt = client.options.getAo();
+                    Object[] constants = aoOpt.getClass().getMethod("getValue").invoke(aoOpt).getClass().getEnumConstants();
+                    Object target = constants[0];
+                    for (Object c : constants) {
+                        if (p.ao && (c.toString().equalsIgnoreCase("MAX") || c.toString().equalsIgnoreCase("TRUE"))) {
+                            target = c; break;
+                        } else if (!p.ao && (c.toString().equalsIgnoreCase("OFF") || c.toString().equalsIgnoreCase("FALSE"))) {
+                            target = c; break;
+                        }
+                    }
+                    for (java.lang.reflect.Method m : aoOpt.getClass().getMethods()) {
+                        if (m.getName().equals("setValue") && m.getParameterCount() == 1) {
+                            m.setAccessible(true); m.invoke(aoOpt, target); break;
+                        }
+                    }
+                } catch (Exception e) {}
+
+                if (client.worldRenderer != null) { client.worldRenderer.reload(); }
+            }
+        }
+        EOF
+
+        # فایل جدید رابط کاربری تفکیک شده پراکسی ویتوری با حل مشکل لود آنی سیستم شبکه جاوا
         cat << 'EOF' > src/main/java/com/fpsboost/ui/V2RayScreen.java
         package com.fpsboost.ui;
 
@@ -373,11 +457,14 @@ jobs:
         import java.io.File;
         import java.io.FileWriter;
         import java.util.Scanner;
+        import java.net.ProxySelector;
 
         public class V2RayScreen extends Screen {
             private final Screen parent;
-            private TextFieldWidget configInput;
-            public static String savedConfig = "";
+            private TextFieldWidget ipInput;
+            private TextFieldWidget portInput;
+            public static String savedIp = "";
+            public static String savedPort = "";
 
             public V2RayScreen(Screen parent) {
                 super(Text.literal("V2Ray Proxy Configuration"));
@@ -386,56 +473,71 @@ jobs:
 
             @Override
             protected void init() {
-                // لود کردن کانفیگ قبلی در صورت وجود
-                if (savedConfig.isEmpty()) {
+                // خواندن اطلاعات ذخیره شده قبلی
+                if (savedIp.isEmpty() && savedPort.isEmpty()) {
                     try {
                         File file = new File(MinecraftClient.getInstance().runDirectory, "v2ray_config.txt");
                         if (file.exists()) {
                             Scanner scanner = new Scanner(file);
-                            if (scanner.hasNextLine()) savedConfig = scanner.nextLine();
+                            if (scanner.hasNextLine()) {
+                                String[] parts = scanner.nextLine().split(":");
+                                if (parts.length >= 2) {
+                                    savedIp = parts[0].trim();
+                                    savedPort = parts[1].trim();
+                                }
+                            }
                             scanner.close();
                         }
                     } catch(Exception e){}
                 }
 
-                // ایجاد فیلد متنی برای چسباندن آی‌پی و پورت پراکسی محلی (مثل 127.0.0.1:10808)
-                this.configInput = new TextFieldWidget(this.textRenderer, this.width / 2 - 150, this.height / 2 - 10, 300, 20, Text.literal("Proxy Host:Port"));
-                this.configInput.setMaxLength(256);
-                this.configInput.setText(savedConfig);
-                this.addDrawableChild(this.configInput);
+                // فیلد اختصاصی وارد کردن آی‌پی پراکسی
+                this.ipInput = new TextFieldWidget(this.textRenderer, this.width / 2 - 100, this.height / 2 - 35, 200, 20, Text.literal("Proxy IP"));
+                this.ipInput.setMaxLength(128);
+                this.ipInput.setText(savedIp.isEmpty() ? "127.0.0.1" : savedIp);
+                this.addDrawableChild(this.ipInput);
 
-                // دکمه ذخیره و اعمال آنی پراکسی روی شبکه کلاینت ماینکرفت
-                this.addDrawableChild(ButtonWidget.builder(Text.literal("§aSave & Apply"), button -> {
-                    savedConfig = this.configInput.getText();
+                // فیلد اختصاصی وارد کردن پورت پراکسی
+                this.portInput = new TextFieldWidget(this.textRenderer, this.width / 2 - 100, this.height / 2 + 5, 200, 20, Text.literal("Proxy Port"));
+                this.portInput.setMaxLength(10);
+                this.portInput.setText(savedPort.isEmpty() ? "10808" : savedPort);
+                this.addDrawableChild(this.portInput);
+
+                // دکمه ذخیره و اعمال آنی به شبکه داخلی سیستم عامل کلاینت
+                this.addDrawableChild(ButtonWidget.builder(Text.literal("§aApply & Save"), button -> {
+                    savedIp = this.ipInput.getText().trim();
+                    savedPort = this.portInput.getText().trim();
                     try {
                         File file = new File(MinecraftClient.getInstance().runDirectory, "v2ray_config.txt");
                         FileWriter writer = new FileWriter(file);
-                        writer.write(savedConfig);
+                        writer.write(savedIp + ":" + savedPort);
                         writer.close();
-                        
-                        if (savedConfig.contains(":")) {
-                            String[] parts = savedConfig.split(":");
-                            System.setProperty("socksProxyHost", parts[0].trim());
-                            System.setProperty("socksProxyPort", parts[1].trim());
-                        } else if (savedConfig.isEmpty()) {
+
+                        if (!savedIp.isEmpty() && !savedPort.isEmpty()) {
+                            System.setProperty("socksProxyHost", savedIp);
+                            System.setProperty("socksProxyPort", savedPort);
+                            // ترفند اصلی: ریست کردن سلکتور پیش‌فرض برای حذف کش و لود آنی پراکسی محلی
+                            ProxySelector.setDefault(null);
+                        } else {
                             System.clearProperty("socksProxyHost");
                             System.clearProperty("socksProxyPort");
+                            ProxySelector.setDefault(null);
                         }
                     } catch(Exception e){}
                     this.client.setScreen(this.parent);
-                }).dimensions(this.width / 2 - 105, this.height / 2 + 25, 100, 20).build());
+                }).dimensions(this.width / 2 - 105, this.height / 2 + 35, 100, 20).build());
 
-                // دکمه انصراف و برگشت
                 this.addDrawableChild(ButtonWidget.builder(Text.literal("Cancel"), button -> {
                     this.client.setScreen(this.parent);
-                }).dimensions(this.width / 2 + 5, this.height / 2 + 25, 100, 20).build());
+                }).dimensions(this.width / 2 + 5, this.height / 2 + 35, 100, 20).build());
             }
 
             @Override
             public void render(net.minecraft.client.gui.DrawContext context, int mouseX, int mouseY, float delta) {
                 this.renderBackground(context, mouseX, mouseY, delta);
                 context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 20, 0xFFFFFF);
-                context.drawCenteredTextWithShadow(this.textRenderer, "Enter local SOCKS proxy (e.g. 127.0.0.1:10808) for V2Ray bypass:", this.width / 2, this.height / 2 - 30, 0xAAAAAA);
+                context.drawText(this.textRenderer, "SOCKS IP:", this.width / 2 - 155, this.height / 2 - 30, 0xAAAAAA, false);
+                context.drawText(this.textRenderer, "PORT:", this.width / 2 - 140, this.height / 2 + 10, 0xAAAAAA, false);
                 super.render(context, mouseX, mouseY, delta);
             }
         }
